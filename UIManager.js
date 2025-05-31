@@ -150,6 +150,10 @@
                     <i class="fas fa-expand-arrows-alt"></i>
                     <span class="toolbar-btn-text">Tout voir</span>
                 </button>
+                <button class="toolbar-btn" id="toolbar-orbit">
+                    <i class="fas fa-sync-alt"></i>
+                    <span class="toolbar-btn-text">Orbite</span>
+                </button>
             </div>
             
             <div class="toolbar-separator"></div>
@@ -231,9 +235,6 @@
                                 </button>
                                 <button class="tool-btn" id="sidebar-hatch" title="Hachures">
                                     <i class="fas fa-grip-lines-vertical"></i>
-                                </button>
-                                <button class="tool-btn" id="sidebar-surface" title="Créer surface">
-                                    <i class="fas fa-fill"></i>
                                 </button>
                                 <button class="tool-btn" id="sidebar-extrude" title="Extruder">
                                     <i class="fas fa-arrow-up"></i>
@@ -371,24 +372,8 @@
                                     <textarea id="project-description" class="data-textarea" rows="3">Description du projet.</textarea>
                                 </div>
                                 <div class="form-group">
-                                    <label for="project-designer">Dessinateur:</label>
-                                    <input type="text" id="project-designer" class="data-input" value="Utilisateur">
-                                </div>
-                                <div class="form-group">
-                                    <label for="procedure-template">Modèle de mode opératoire:</label>
-                                    <select id="procedure-template" class="data-input">
-                                        <option value="">-- Sélectionnez un modèle --</option>
-                                        <option value="mur-demi-brique">Mur 1/2 brique épaisseur</option>
-                                        <option value="mur-bloc-14">Mur bloc de 14</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="project-procedure">Mode opératoire:</label>
-                                    <textarea id="project-procedure" class="data-textarea" rows="30" placeholder="Décrivez le mode opératoire détaillé..." style="min-height: 400px; font-family: 'Consolas', monospace; white-space: pre-wrap;"></textarea>
-                                </div>
-                                <div class="form-group">
-                                    <label for="project-notes">Notes:</label>
-                                    <textarea id="project-notes" class="data-textarea" rows="5" placeholder="Notes complémentaires..." style="min-height: 80px;"></textarea>
+                                    <label for="project-author">Auteur:</label>
+                                    <input type="text" id="project-author" class="data-input" value="Utilisateur">
                                 </div>
                                 <div class="form-actions">
                                     <button id="save-project-data" class="btn btn-primary">
@@ -647,26 +632,6 @@
     // Variable globale pour stocker l'outil actuel
     window.lastUsedTool = 'select';
     
-    // Fonction pour activer le mode orbite
-    function activateOrbitMode() {
-        if (window.app && window.app.controls) {
-            window.app.controls.enabled = true;
-            const orbitBtn = document.getElementById('toolbar-view-orbit');
-            orbitBtn?.classList.add('active');
-            console.log('Mode orbite activé automatiquement');
-        }
-    }
-    
-    // Fonction pour désactiver le mode orbite
-    function deactivateOrbitMode() {
-        if (window.app && window.app.controls) {
-            window.app.controls.enabled = false;
-            const orbitBtn = document.getElementById('toolbar-view-orbit');
-            orbitBtn?.classList.remove('active');
-            console.log('Mode orbite désactivé automatiquement');
-        }
-    }
-    
     // Ajouter la méthode manquante immédiatement
     window.addEventListener('load', () => {
         // Intercepter les changements d'outils avec possibilité de désélection
@@ -680,8 +645,6 @@
                         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
                         this.classList.add('active');
                         window.lastUsedTool = 'select';
-                        // Désactiver le mode orbite quand on passe en mode sélection
-                        deactivateOrbitMode();
                         if (window.app && window.app.setTool) {
                             window.app.setTool('select');
                         }
@@ -689,21 +652,19 @@
                     } else {
                         // Pour les autres outils, permettre la désélection
                         if (this.classList.contains('active') && toolId === window.lastUsedTool) {
-                            // Désélectionner l'outil actuel et activer le mode orbite
+                            // Désélectionner l'outil actuel et retourner au mode sélection
                             this.classList.remove('active');
-                            window.lastUsedTool = 'orbit';
+                            document.getElementById('sidebar-select').classList.add('active');
+                            window.lastUsedTool = 'select';
                             if (window.app && window.app.setTool) {
                                 window.app.setTool('select');
                             }
-                            activateOrbitMode();
-                            console.log('Outil désélectionné, passage en mode orbite');
+                            console.log('Outil désélectionné, retour au mode sélection');
                         } else {
-                            // Activer le nouvel outil et désactiver le mode orbite
+                            // Activer le nouvel outil
                             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
                             this.classList.add('active');
                             window.lastUsedTool = toolId;
-                            // Désactiver le mode orbite quand on sélectionne un outil de dessin
-                            deactivateOrbitMode();
                             console.log('Outil sélectionné:', toolId);
                         }
                     }
@@ -726,7 +687,6 @@
                             if (window.app.history && window.app.history.length > 0) {
                                 historyList.innerHTML = '';
                                 
-
                                 window.app.history.forEach((item, index) => {
                                     const historyItem = document.createElement('div');
                                     historyItem.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 12px; transition: background-color 0.2s;';
@@ -817,18 +777,6 @@
                                     ...data,
                                     tool: window.lastUsedTool || window.app.currentTool
                                 };
-                                
-                                // Si c'est une création d'objet, activer le mode orbite
-                                if (action === 'create') {
-                                    setTimeout(() => {
-                                        // Désélectionner tous les outils de la sidebar
-                                        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-                                        window.lastUsedTool = 'orbit';
-                                        activateOrbitMode();
-                                        console.log('Objet créé, passage automatique en mode orbite');
-                                    }, 100);
-                                }
-                                
                                 return originalAddToHistory(action, enhancedData);
                             };
                             console.log('Méthode addToHistory interceptée');
@@ -994,90 +942,6 @@
         });
 
         updateUsedElementsDisplay();
-        
-        // Ajouter le gestionnaire pour le bouton Orbite de la toolbar
-        document.getElementById('toolbar-view-orbit')?.addEventListener('click', () => {
-            console.log('Bouton Orbite cliqué');
-            
-            // Attendre que l'application soit initialisée
-            if (window.app && window.app.controls) {
-                const orbitBtn = document.getElementById('toolbar-view-orbit');
-                const isCurrentlyEnabled = window.app.controls.enabled;
-                
-                // Basculer l'état des contrôles
-                window.app.controls.enabled = !isCurrentlyEnabled;
-                
-                // Mettre à jour l'apparence du bouton et l'état global
-                if (!isCurrentlyEnabled) {
-                    orbitBtn?.classList.add('active');
-                    window.lastUsedTool = 'orbit';
-                    // Désélectionner tous les outils de la sidebar
-                    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-                    console.log('Mode orbite activé');
-                } else {
-                    orbitBtn?.classList.remove('active');
-                    window.lastUsedTool = 'select';
-                    // Réactiver le bouton sélection
-                    document.getElementById('sidebar-select')?.classList.add('active');
-                    console.log('Mode orbite désactivé');
-                }
-            } else {
-                console.log('Application ou contrôles non disponibles');
-                // Essayer plus tard si l'app n'est pas encore prête
-                setTimeout(() => {
-                    if (window.app && window.app.controls) {
-                        const orbitBtn = document.getElementById('toolbar-view-orbit');
-                        const isCurrentlyEnabled = window.app.controls.enabled;
-                        
-                        window.app.controls.enabled = !isCurrentlyEnabled;
-                        
-                        if (!isCurrentlyEnabled) {
-                            orbitBtn?.classList.add('active');
-                            window.lastUsedTool = 'orbit';
-                            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-                            console.log('Mode orbite activé (différé)');
-                        } else {
-                            orbitBtn?.classList.remove('active');
-                            window.lastUsedTool = 'select';
-                            document.getElementById('sidebar-select')?.classList.add('active');
-                            console.log('Mode orbite désactivé (différé)');
-                        }
-                    }
-                }, 1000);
-            }
-        });
-    });
-    
-    // Templates de mode opératoire
-    const procedureTemplates = {
-        'mur-demi-brique': `1. Préparation & Traçage : Préparez outils/matériaux. Tracez l'emplacement du muret au sol avec un cordeau.
-2. Mortier : Mélangez 1 vol. ciment pour 3-4 vol. sable avec de l'eau (consistance souple).
-3. 1ère Assise (Cruciale) : Étalez un lit de mortier. Posez la 1ère brique, nivelez-la parfaitement (longueur/largeur).
-4. Suite 1ère Assise : Beurrez le bout des briques suivantes, posez-les avec un joint de 1 cm, alignez et nivelez.
-5. Assises Suivantes : Montez en décalant les joints verticaux (quinconce) pour la solidité.
-6. Pose & Contrôles : Sur chaque assise, étalez le mortier, posez les briques en vérifiant constamment l'alignement (cordeau), le niveau (horizontal) et l'aplomb (vertical).
-7. Nettoyage en Cours : Retirez l'excès de mortier frais avec la truelle au fur et à mesure.
-8. Préparation Rejointoiement : Laissez le mortier prendre légèrement (ne colle plus au doigt).
-9. Rejointoiement : Garnissez les joints avec du mortier frais à l'aide d'un fer à joint, en lissant pour une belle finition.
-10. Nettoyage Final : Brossez le muret pour enlever les débris de mortier et nettoyez vos outils.`,
-        'mur-bloc-14': `1. Préparation & Traçage : Préparez zone, outils (niveau, truelle, massette, cordeau) et matériaux (blocs de 14, mortier). Tracez l'emplacement au sol.
-2. Mortier : Préparez un mortier de maçonnerie (ex: 1 vol. ciment pour 3-4 vol. sable + eau) à consistance onctueuse.
-3. 1ère Assise (Fondation) : Étalez un lit de mortier de 2-3 cm. Posez le premier bloc, ajustez-le et nivelez-le parfaitement dans les deux sens.
-4. Suite 1ère Assise : Beurrez les "oreilles" (côtés) du bloc suivant. Posez-le contre le premier (joint ~1 cm), alignez et nivelez.
-5. Assises Suivantes (Décalage) : Montez les assises en décalant les joints verticaux d'un demi-bloc pour la solidité (appareillage en quinconce).
-6. Pose & Contrôles Continus : Sur chaque assise, étalez le mortier. Posez les blocs en vérifiant constamment l'alignement (cordeau), le niveau horizontal et l'aplomb (vertical).
-7. Ajustements & Excès : Utilisez la massette pour de légers ajustements si besoin. Enlevez l'excès de mortier avec la truelle.
-8. Finition des Joints (Préparation) : Laissez le mortier des joints raffermir (quand il ne s'enfonce plus sous le doigt).
-9. Rejointoiement/Lissage : Garnissez et lissez les joints avec une truelle langue de chat ou un fer à joint pour une finition propre.
-10. Nettoyage Final : Brossez le muret pour enlever les résidus de mortier et nettoyez soigneusement vos outils.`
-    };
-
-    document.getElementById('procedure-template').addEventListener('change', function() {
-        const selectedTemplate = this.value;
-        const procedureTextarea = document.getElementById('project-procedure');
-        if (selectedTemplate && procedureTemplates[selectedTemplate]) {
-            procedureTextarea.value = procedureTemplates[selectedTemplate];
-        }
     });
     </script>
 </body>

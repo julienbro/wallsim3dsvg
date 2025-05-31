@@ -217,7 +217,7 @@ body {
     right: 0;
     top: 10%; /* Changed from 50px */
     bottom: 30%; /* Changed from 0 */
-    width: 350px;
+    width: 420px;
     background-color: #2a2a2a;
     border-left: 1px solid #3e3e3e;
     display: flex;
@@ -2199,4 +2199,90 @@ body {
 }
 */
 
-/* ...existing code... */
+.snap-guide {
+    position: absolute;
+    background-color: rgba(0, 255, 0, 0.2);
+    border: 1px dashed #00ff00;
+    pointer-events: none;
+    z-index: 999;
+}
+
+/* Styles pour les formulaires de données du projet */
+.data-section {
+    padding: 15px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: #e0e0e0;
+    font-weight: 500;
+}
+
+.data-input,
+.data-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background-color: #252525;
+    border: 1px solid #3e3e3e;
+    color: #e0e0e0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.data-textarea {
+    resize: vertical;
+    line-height: 1.4;
+}
+
+.data-input:focus,
+.data-textarea:focus {
+    outline: none;
+    border-color: #0066ff;
+    box-shadow: 0 0 4px rgba(0, 102, 255, 0.3);
+}
+
+/* Styles spécifiques pour les grandes zones de texte dans l'onglet données */
+#project-procedure {
+    min-height: 400px;
+    max-height: 500px;
+    font-family: 'Consolas', monospace;
+    white-space: pre-wrap;
+    font-size: 11px;
+}
+
+#project-notes {
+    min-height: 80px;
+    max-height: 120px;
+    font-size: 11px;
+}
+
+.form-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.btn-primary {
+    background-color: #0066ff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: #0052cc;
+}

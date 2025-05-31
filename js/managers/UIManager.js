@@ -120,97 +120,66 @@ export class UIManager {
     setupDrawingTools() {
         console.log('Configuration des outils de dessin dans la sidebar...');
         
-        // Outils dans la barre latérale gauche
-        const sidebarLineBtn = document.getElementById('sidebar-line');
-        if (sidebarLineBtn) {
-            sidebarLineBtn.addEventListener('click', () => {
-                console.log('Sidebar line cliqué');
-                this.app.toolManager.setTool('line');
-            });
+        // Configuration des outils de la sidebar
+        document.getElementById('sidebar-select').addEventListener('click', () => this.handleToolSelect('select'));
+        document.getElementById('sidebar-polyline').addEventListener('click', () => this.handleToolSelect('polyline'));
+        document.getElementById('sidebar-arc').addEventListener('click', () => this.handleToolSelect('arc'));
+        document.getElementById('sidebar-rect').addEventListener('click', () => this.handleToolSelect('rect'));
+        document.getElementById('sidebar-circle').addEventListener('click', () => this.handleToolSelect('circle'));
+        document.getElementById('sidebar-parallel').addEventListener('click', () => this.handleToolSelect('parallel'));
+        document.getElementById('sidebar-trim').addEventListener('click', () => this.handleToolSelect('trim'));
+        document.getElementById('sidebar-extend').addEventListener('click', () => this.handleToolSelect('extend'));
+        document.getElementById('sidebar-hatch').addEventListener('click', () => this.handleToolSelect('hatch'));
+        
+        // Vérifier si le bouton surface existe avant d'ajouter l'event listener
+        const surfaceBtn = document.getElementById('sidebar-surface');
+        if (surfaceBtn) {
+            surfaceBtn.addEventListener('click', () => this.handleToolSelect('surface'));
+        } else {
+            console.warn('Bouton sidebar-surface non trouvé dans le HTML');
         }
         
-        const sidebarRectBtn = document.getElementById('sidebar-rect');
-        if (sidebarRectBtn) {
-            sidebarRectBtn.addEventListener('click', () => {
-                console.log('Sidebar rect cliqué');
-                this.app.toolManager.setTool('rect');
-            });
-        }
-        
-        const sidebarCircleBtn = document.getElementById('sidebar-circle');
-        if (sidebarCircleBtn) {
-            sidebarCircleBtn.addEventListener('click', () => {
-                console.log('Sidebar circle cliqué');
-                this.app.toolManager.setTool('circle');
-            });
-        }
-        
-        // Ajout pour le bouton Arc
-        const sidebarArcBtn = document.getElementById('sidebar-arc');
-        if (sidebarArcBtn) {
-            sidebarArcBtn.addEventListener('click', () => {
-                console.log('Sidebar arc cliqué');
-                this.app.toolManager.setTool('arc');
-            });
-        }
-        
-        const sidebarPolylineBtn = document.getElementById('sidebar-polyline');
-        if (sidebarPolylineBtn) {
-            sidebarPolylineBtn.addEventListener('click', () => {
-                console.log('Sidebar polyline cliqué');
-                this.app.toolManager.setTool('polyline');
-            });
-        }
-        
-        const sidebarSelectBtn = document.getElementById('sidebar-select');
-        if (sidebarSelectBtn) {
-            sidebarSelectBtn.addEventListener('click', () => {
-                console.log('Sidebar select cliqué');
-                this.app.toolManager.setTool('select');
-            });
-        }
-        
-        const sidebarExtrudeBtn = document.getElementById('sidebar-extrude');
-        if (sidebarExtrudeBtn) {
-            sidebarExtrudeBtn.addEventListener('click', () => {
-                console.log('Sidebar extrude cliqué');
-                this.app.toolManager.setTool('extrude');
-            });
-        }
-        
-        const sidebarParallelBtn = document.getElementById('sidebar-parallel');
-        if (sidebarParallelBtn) {
-            sidebarParallelBtn.addEventListener('click', () => {
-                console.log('Sidebar parallel cliqué');
-                this.app.toolManager.setTool('parallel');
-            });
-        }
-        
-        const sidebarTrimBtn = document.getElementById('sidebar-trim');
-        if (sidebarTrimBtn) {
-            sidebarTrimBtn.addEventListener('click', () => {
-                console.log('Sidebar trim cliqué');
-                this.app.toolManager.setTool('trim');
-            });
-        }
-        
-        const sidebarExtendBtn = document.getElementById('sidebar-extend');
-        if (sidebarExtendBtn) {
-            sidebarExtendBtn.addEventListener('click', () => {
-                console.log('Sidebar extend cliqué');
-                this.app.toolManager.setTool('extend');
-            });
-        }
-        
-        const sidebarHatchBtn = document.getElementById('sidebar-hatch');
-        if (sidebarHatchBtn) {
-            sidebarHatchBtn.addEventListener('click', () => {
-                console.log('Sidebar hatch cliqué');
-                this.app.toolManager.setTool('hatch');
-            });
-        }
+        document.getElementById('sidebar-extrude').addEventListener('click', () => this.handleToolSelect('extrude'));
         
         console.log('Outils de la sidebar configurés');
+    }
+    
+    /**
+     * Gère la sélection d'un outil
+     */
+    handleToolSelect(toolName) {
+        console.log(`Sélection de l'outil: ${toolName}`);
+        
+        // Mettre à jour l'état visuel des boutons
+        this.updateToolButtons(toolName);
+        
+        // Déléguer au ToolManager si disponible
+        if (this.app.toolManager) {
+            this.app.toolManager.setTool(toolName);
+        } else {
+            // Fallback pour la compatibilité
+            this.app.currentTool = toolName;
+            if (this.app.drawingManager) {
+                this.app.drawingManager.startDrawing(toolName);
+            }
+        }
+    }
+    
+    /**
+     * Met à jour l'état visuel des boutons d'outils
+     */
+    updateToolButtons(activeTool) {
+        // Retirer la classe active de tous les boutons d'outils
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        toolButtons.forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        // Ajouter la classe active au bouton sélectionné
+        const activeButton = document.getElementById(`sidebar-${activeTool}`);
+        if (activeButton) {
+            activeButton.classList.add('active');
+        }
     }
     
     setupRightSidebar() {
