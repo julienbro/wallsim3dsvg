@@ -64,7 +64,10 @@ async function startApplication() {
         await simulateLoading();
         
         // Créer l'instance de l'application
-        const app = new WebCAD();
+        window.app = new WebCAD();
+        
+        // Exposer THREE à window.app pour les scripts externes
+        window.app.THREE = THREE;
         
         // Rendre l'application globale pour le débogage
         window.app = app;

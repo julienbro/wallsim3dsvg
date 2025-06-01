@@ -75,6 +75,13 @@
                     <a href="#" id="toggle-grid">Afficher/Masquer grille</a>
                 </div>
             </div>
+            <div class="menu-item dropdown">
+                <span>Style</span>
+                <div class="dropdown-content">
+                    <a href="#" id="style-elements-color">Élément en couleur</a>
+                    <a href="#" id="style-elements-white">Élément en blancs</a>
+                </div>
+            </div>
             <!-- Logo centré -->
             <div class="menu-logo">
                 <img src="https://wallsim3d.com/logo/logo1.png" alt="Logo">
@@ -109,6 +116,10 @@
                 <button class="toolbar-btn" id="toolbar-export">
                     <i class="fas fa-file-export"></i>
                     <span class="toolbar-btn-text">Exporter</span>
+                </button>
+                <button class="toolbar-btn" id="toolbar-export-view-pdf" title="Exporter la vue actuelle en PDF">
+                    <i class="fas fa-camera"></i> <i class="fas fa-file-pdf" style="margin-left: -5px;"></i>
+                    <span class="toolbar-btn-text">Vue PDF</span>
                 </button>
             </div>
             
@@ -1045,6 +1056,396 @@
                     }
                 }, 1000);
             }
+        });
+        
+        // Gestionnaires d'événements pour le menu Style
+        document.getElementById('style-elements-color')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.setElementsColorStyle();
+        });
+        
+        document.getElementById('style-elements-white')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.setElementsWhiteStyle();
+        });
+    });
+    
+    // --- Gestion des styles (blanc/couleur) - Portée globale ---
+    window.app = window.app || {};
+    window.app.originalMaterials = new Map();
+    window.app.isWhiteStyleActive = false;
+    
+    let whiteMeshMaterial, whiteLineMaterial;
+    
+    function initializeWhiteMaterials() {
+        // Wait for app to be fully initialized
+        if (!window.app || !window.app.THREE) {
+            return false;
+        }
+        
+        const THREE = window.app.THREE;
+        
+        if (!whiteMeshMaterial) {
+            whiteMeshMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xffffff, 
+                side: THREE.DoubleSide 
+            });
+        }
+        if (!whiteLineMaterial) {
+            whiteLineMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xffffff, 
+                linewidth: 2 
+            });
+        }
+        console.log('Matériaux blancs initialisés');
+        return true;
+    }
+    
+    // Check more frequently and for a longer time
+    const checkThreeInterval = setInterval(() => {
+        if (window.app && window.app.THREE && initializeWhiteMaterials()) {
+            clearInterval(checkThreeInterval);
+        }
+    }, 100);
+    
+    setTimeout(() => clearInterval(checkThreeInterval), 20000); // Extended timeout
+    
+    window.setElementsWhiteStyle = function() {
+        if (!window.app || !window.app.scene) {
+            console.warn('Application ou scène non disponible');
+            document.getElementById('command-output').textContent = 'Erreur: Application non prête';
+            return;
+        }
+        
+        if (!window.app.THREE) {
+            console.error('THREE.js non disponible dans window.app');
+            document.getElementById('command-output').textContent = 'Erreur: THREE.js non disponible';
+            return;
+        }
+        
+        if (!window.app.originalMaterials) {
+            window.app.originalMaterials = new Map();
+        }
+        
+        if (!whiteMeshMaterial || !whiteLineMaterial) {
+            if (!initializeWhiteMaterials()) {
+                console.error('Impossible d\'initialiser les matériaux blancs');
+                document.getElementById('command-output').textContent = 'Erreur: Matériaux non initialisés';
+                return;
+            }
+        }
+        
+        if (window.app.isWhiteStyleActive) {
+            console.log('Style blanc déjà actif');
+            return;
+        }
+        
+        window.app.isWhiteStyleActive = true;
+        window.app.originalMaterials.clear();
+        
+        let objectCount = 0;
+        
+        // Parcourir tous les objets de la scène
+        window.app.scene.traverse((object) => {
+            if (object.isMesh || object.isLine || object.isLineSegments) {
+                // Ignorer les helpers et grilles
+                if (object.name === 'GridHelper' || object.name === 'AxesHelper' || 
+                    object.name.includes('Helper') || object.userData?.isHelper ||
+                    object.userData?.isAxisIndicator) {
+                    return;
+                }
+                
+                // Sauvegarder le matériau original
+                if (object.material) {
+                    // Gérer les matériaux multiples
+                    if (Array.isArray(object.material)) {
+                        window.app.originalMaterials.set(object.uuid, object.material.slice());
+                        object.material = object.material.map(() => 
+                            object.isMesh ? whiteMeshMaterial : whiteLineMaterial
+                        );
+                    } else {
+                        window.app.originalMaterials.set(object.uuid, object.material);
+                        if (object.isMesh) {
+                            object.material = whiteMeshMaterial;
+                        } else if (object.isLine || object.isLineSegments) {
+                            object.material = whiteLineMaterial;
+                        }
+                    }
+                    objectCount++;
+                }
+            }
+        });
+        
+        console.log(`Style blanc appliqué à ${objectCount} objets`);
+        
+        // Forcer le rendu
+        if (window.app.render) {
+            window.app.render();
+        }
+        
+        document.getElementById('command-output').textContent = 'Style: Éléments en blancs appliqué';
+    }
+    
+    window.setElementsColorStyle = function() {
+        if (!window.app || !window.app.scene) {
+            console.warn('Application ou scène non disponible');
+            document.getElementById('command-output').textContent = 'Erreur: Application non prête';
+            return;
+        }
+        
+        if (!window.app.originalMaterials) {
+            window.app.originalMaterials = new Map();
+        }
+        
+        if (!window.app.isWhiteStyleActive) {
+            console.log('Style couleur déjà actif');
+            document.getElementById('command-output').textContent = 'Style: Éléments déjà en couleur';
+            return;
+        }
+        
+        window.app.isWhiteStyleActive = false;
+        
+        let objectCount = 0;
+        
+        // Restaurer les matériaux originaux
+        window.app.scene.traverse((object) => {
+            if (object.isMesh || object.isLine || object.isLineSegments) {
+                const originalMaterial = window.app.originalMaterials.get(object.uuid);
+                if (originalMaterial) {
+                    object.material = originalMaterial;
+                    objectCount++;
+                }
+            }
+        });
+        
+        window.app.originalMaterials.clear();
+        
+        console.log(`Couleurs restaurées pour ${objectCount} objets`);
+        
+        // Forcer le rendu
+        if (window.app.render) {
+            window.app.render();
+        }
+        
+        document.getElementById('command-output').textContent = 'Style: Éléments en couleur restauré';
+    }
+    </script>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Système de tracking des éléments de construction
+        window.trackedConstructionElements = window.trackedConstructionElements || [];
+
+        const elementDisplayInfo = {
+            'brique-standard': { name: 'Brique Std.', icon: '🧱' },
+            'bloc-beton': { name: 'Bloc Béton', icon: '⬜' },
+            'linteau-beton': { name: 'Linteau', icon: '━' },
+            'isolant-laine': { name: 'Isolant', icon: '🟨' },
+            'brique-m90': { name: 'Brique M90', icon: '🧱' },
+            'brique-m65': { name: 'Brique M65', icon: '🧱' },
+            'brique': { name: 'Brique', icon: '🧱' },
+            'bloc': { name: 'Bloc', icon: '⬜' },
+            'linteau': { name: 'Linteau', icon: '━' },
+            'isolant': { name: 'Isolant', icon: '🟨' },
+            'unknown': { name: 'Élément', icon: '📦' }
+        };
+
+        function updateUsedElementsDisplay() {
+            const displayList = document.getElementById('used-elements-list-display');
+            if (!displayList) return;
+            
+            displayList.innerHTML = '';
+
+            const counts = {};
+            window.trackedConstructionElements.forEach(elementObj => {
+                if (elementObj && elementObj.type) {
+                    counts[elementObj.type] = (counts[elementObj.type] || 0) + 1;
+                }
+            });
+
+            if (Object.keys(counts).length === 0) {
+                displayList.innerHTML = `<p style="grid-column: 1 / -1; text-align: center; color: #999; font-size: 12px;">Aucun élément utilisé dans le modèle</p>`;
+                return;
+            }
+
+            for (const type in counts) {
+                const info = elementDisplayInfo[type] || elementDisplayInfo['unknown'];
+                const count = counts[type];
+                const itemDiv = document.createElement('div');
+                itemDiv.style.cssText = `
+                    padding: 8px; text-align: center; background: #f9f9f9; 
+                    border: 1px solid #eee; border-radius: 4px; font-size: 11px;
+                    display: flex; flex-direction: column; align-items: center; justify-content: center;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer;
+                `;
+                itemDiv.innerHTML = `
+                    <div style="font-size: 20px; margin-bottom: 2px;">${info.icon}</div>
+                    <div>${info.name}</div>
+                    <div style="font-size: 10px; color: #777;">(x${count})</div>
+                `;
+                itemDiv.onmouseenter = function() { this.style.background = '#f0f0f0'; };
+                itemDiv.onmouseleave = function() { this.style.background = '#f9f9f9'; };
+                displayList.appendChild(itemDiv);
+            }
+        }
+        window.updateUsedElementsDisplay = updateUsedElementsDisplay;
+
+        function addTrackedElementWithUUID(elementType, uuid) {
+            if (elementType && uuid) {
+                if (!window.trackedConstructionElements.find(el => el.id === uuid)) {
+                    window.trackedConstructionElements.push({ type: elementType, id: uuid });
+                    updateUsedElementsDisplay();
+                }
+            }
+        }
+
+        function removeTrackedElementByUUID(uuid) {
+            const initialLength = window.trackedConstructionElements.length;
+            window.trackedConstructionElements = window.trackedConstructionElements.filter(el => el.id !== uuid);
+            if (window.trackedConstructionElements.length < initialLength) {
+                updateUsedElementsDisplay();
+            }
+        }
+
+        // Intercepter les ajouts/suppressions à la scène
+        let sceneReadyCheckInterval = setInterval(() => {
+            if (window.app && window.app.scene && typeof window.app.scene.add === 'function') {
+                clearInterval(sceneReadyCheckInterval);
+
+                const originalSceneAdd = window.app.scene.add;
+                window.app.scene.add = function(...objects) {
+                    objects.forEach(obj => {
+                        if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement && obj.userData.elementType) {
+                            addTrackedElementWithUUID(obj.userData.elementType, obj.uuid);
+                        }
+                    });
+                    return originalSceneAdd.apply(this, objects);
+                };
+
+                const originalSceneRemove = window.app.scene.remove;
+                window.app.scene.remove = function(...objects) {
+                    objects.forEach(obj => {
+                        if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement) {
+                           removeTrackedElementByUUID(obj.uuid);
+                        }
+                    });
+                    return originalSceneRemove.apply(this, objects);
+                };
+                
+                updateUsedElementsDisplay();
+            }
+        }, 200);
+        
+        setTimeout(() => clearInterval(sceneReadyCheckInterval), 10000);
+
+        // Gestion des onglets de la sidebar
+        document.querySelectorAll('.sidebar-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.sidebar-panel').forEach(p => {
+                    p.style.display = 'none';
+                    p.classList.remove('active');
+                });
+                document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+                
+                this.classList.add('active');
+                const panelId = this.dataset.panel + '-panel';
+                const panel = document.getElementById(panelId);
+                
+                if (panel) {
+                    panel.style.display = 'block';
+                    panel.classList.add('active');
+                    
+                    if (this.dataset.panel === 'biblio') {
+                        updateUsedElementsDisplay();
+                    }
+                    
+                    // Mettre à jour l'historique quand on clique sur l'onglet
+                    if (this.dataset.panel === 'history' && window.app && window.app.uiManager && window.app.uiManager.updateHistoryPanel) {
+                        window.app.uiManager.updateHistoryPanel();
+                    }
+                }
+            });
+        });
+
+        // Modal show/hide
+        document.getElementById('show-elements-library')?.addEventListener('click', () => {
+            document.getElementById('elements-modal').style.display = 'block';
+        });
+
+        document.getElementById('close-elements-modal')?.addEventListener('click', () => {
+            document.getElementById('elements-modal').style.display = 'none';
+        });
+
+        // Clic en dehors de la modal pour fermer
+        document.getElementById('elements-modal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'elements-modal') {
+                e.target.style.display = 'none';
+            }
+        });
+
+        updateUsedElementsDisplay();
+        
+        // Ajouter le gestionnaire pour le bouton Orbite de la toolbar
+        document.getElementById('toolbar-view-orbit')?.addEventListener('click', () => {
+            console.log('Bouton Orbite cliqué');
+            
+            // Attendre que l'application soit initialisée
+            if (window.app && window.app.controls) {
+                const orbitBtn = document.getElementById('toolbar-view-orbit');
+                const isCurrentlyEnabled = window.app.controls.enabled;
+                
+                // Basculer l'état des contrôles
+                window.app.controls.enabled = !isCurrentlyEnabled;
+                
+                // Mettre à jour l'apparence du bouton et l'état global
+                if (!isCurrentlyEnabled) {
+                    orbitBtn?.classList.add('active');
+                    window.lastUsedTool = 'orbit';
+                    // Désélectionner tous les outils de la sidebar
+                    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                    console.log('Mode orbite activé');
+                } else {
+                    orbitBtn?.classList.remove('active');
+                    window.lastUsedTool = 'select';
+                    // Réactiver le bouton sélection
+                    document.getElementById('sidebar-select')?.classList.add('active');
+                    console.log('Mode orbite désactivé');
+                }
+            } else {
+                console.log('Application ou contrôles non disponibles');
+                // Essayer plus tard si l'app n'est pas encore prête
+                setTimeout(() => {
+                    if (window.app && window.app.controls) {
+                        const orbitBtn = document.getElementById('toolbar-view-orbit');
+                        const isCurrentlyEnabled = window.app.controls.enabled;
+                        
+                        window.app.controls.enabled = !isCurrentlyEnabled;
+                        
+                        if (!isCurrentlyEnabled) {
+                            orbitBtn?.classList.add('active');
+                            window.lastUsedTool = 'orbit';
+                            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                            console.log('Mode orbite activé (différé)');
+                        } else {
+                            orbitBtn?.classList.remove('active');
+                            window.lastUsedTool = 'select';
+                            document.getElementById('sidebar-select')?.classList.add('active');
+                            console.log('Mode orbite désactivé (différé)');
+                        }
+                    }
+                }, 1000);
+            }
+        });
+        
+        // Gestionnaires d'événements pour le menu Style
+        document.getElementById('style-elements-color')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.setElementsColorStyle();
+        });
+        
+        document.getElementById('style-elements-white')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.setElementsWhiteStyle();
         });
     });
     

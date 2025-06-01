@@ -589,6 +589,17 @@ export class UIManager {
             // Initialiser l'état du bouton selon l'état par défaut de l'application
             snapBtn.classList.toggle('active', this.app.snapEnabled);
         }
+
+        // Ajouter le gestionnaire pour le nouveau bouton "Exporter Vue en PDF"
+        document.getElementById('toolbar-export-view-pdf')?.addEventListener('click', () => {
+            console.log('Exporter Vue en PDF cliqué');
+            if (this.app.fileManager && typeof this.app.fileManager.exportViewToPDF === 'function') {
+                this.app.fileManager.exportViewToPDF();
+            } else {
+                console.error('Méthode exportViewToPDF non disponible dans FileManager');
+                alert('La fonctionnalité d\'export de la vue en PDF n\'est pas disponible.');
+            }
+        });
     }
     
     setupTextureLibrary() {

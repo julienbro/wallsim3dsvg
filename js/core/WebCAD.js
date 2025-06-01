@@ -116,6 +116,25 @@ export class WebCAD {
         this.viewManager = new ViewManager(this);
         this.fileManager = new FileManager(this);
         this.uiManager = new UIManager(this);
+
+        // Ensure specific data fields are empty after UIManager initialization.
+        // Note: This primarily affects the initial state. If UIManager or other
+        // components load data into these fields later (e.g., from a file),
+        // this call alone won't prevent that subsequent population.
+        this.ensureDataFieldsAreEmpty();
+    }
+
+    ensureDataFieldsAreEmpty() {
+        const designerField = document.getElementById('project-designer');
+        if (designerField) {
+            designerField.value = '';
+        }
+
+        const descriptionField = document.getElementById('project-description');
+        if (descriptionField) {
+            descriptionField.value = '';
+        }
+        // console.log("Data tab fields 'project-designer' and 'project-description' set to empty.");
     }
     
     createSky() {
@@ -937,34 +956,6 @@ export class WebCAD {
         const zAxis = new THREE.Line(zGeometry, zMaterial);
         zAxis.renderOrder = 100;
         this.scene.add(zAxis);
-        
-        // Ajouter des flèches aux extrémités des axes
-        this.createAxisArrows(axisLength);
-    }
-    
-    createAxisArrows(axisLength) {
-        // Créer des cônes pour les flèches aux extrémités
-        const arrowGeometry = new THREE.ConeGeometry(2, 8, 8);
-        
-        // Flèche X (Rouge) - sur le plateau
-        const xArrow = new THREE.Mesh(arrowGeometry, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-        xArrow.position.set(axisLength, 0, 0);
-        xArrow.rotation.z = -Math.PI / 2;
-        xArrow.renderOrder = 101;
-        this.scene.add(xArrow);
-        
-        // Flèche Y (Vert) - sur le plateau
-        const yArrow = new THREE.Mesh(arrowGeometry, new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-        yArrow.position.set(0, axisLength, 0);
-        yArrow.renderOrder = 101;
-        this.scene.add(yArrow);
-        
-        // Flèche Z (Bleu)
-        const zArrow = new THREE.Mesh(arrowGeometry, new THREE.MeshBasicMaterial({ color: 0x0000ff }));
-        zArrow.position.set(0, 0, 200);
-        zArrow.rotation.x = Math.PI;
-        zArrow.renderOrder = 101;
-        this.scene.add(zArrow);
     }
     
     setupLighting() {
