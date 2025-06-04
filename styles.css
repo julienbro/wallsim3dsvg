@@ -205,7 +205,6 @@ body {
     z-index: 100;
     border-radius: 0 8px 8px 0;
     border: 1px solid #3e3e3e;
-    border-left: none;
 }
 
 .left-sidebar {
@@ -355,29 +354,42 @@ body {
 
 .layer-item i {
     margin-left: auto;
+    color: #ccc; /* Couleur par défaut pour les icônes */
+    transition: color 0.2s ease-in-out;
+}
+
+.layer-item i:hover {
+    color: #fff; /* Couleur au survol */
 }
 
 /* Zone de visualisation */
 .viewport-container {
     flex: 1;
     position: relative;
-    background-color: #0a0a0a;
+    background-color: #121212; /* Fond légèrement plus clair pour un meilleur contraste */
+    overflow: hidden; /* Empêche le débordement du canvas */
 }
 
 #viewport {
     width: 100%;
     height: 100%;
+    display: flex; /* Permet de centrer le canvas si nécessaire */
+    justify-content: center;
+    align-items: center;
 }
 
 #viewport canvas {
     display: block;
+    max-width: 100%; /* S'assure que le canvas ne dépasse pas son conteneur */
+    max-height: 100%;
     image-rendering: -moz-crisp-edges;
     image-rendering: -webkit-crisp-edges;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     /* Accélération matérielle pour les transitions d'ombres */
-    will-change: transform, filter;
-    transform: translateZ(0);
+    will-change: transform, filter; /* filter peut être coûteux, utiliser avec parcimonie */
+    transform: translateZ(0); /* Force l'accélération matérielle */
+    outline: none; /* Supprime le contour bleu potentiel au focus */
 }
 
 /* Indicateur d'axes */
@@ -410,7 +422,7 @@ body {
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #2d2d2d;
+    background-color: #1e1e1e; /* Un peu plus clair que #2d2d2d pour se démarquer */
     padding: 8px 16px;
     display: flex;
     gap: 24px;
@@ -785,8 +797,17 @@ body {
 
 /* Ajustement de la barre latérale */
 .sidebar {
-    /* ...existing code... */
-    width: 65px; /* Réduire la largeur car plus de texte */
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 120px; /* Augmenter la largeur pour les boutons avec texte */
+    height: 60vh;
+    background-color: #2a2a2a;
+    overflow-y: auto;
+    z-index: 100;
+    border-radius: 0 8px 8px 0;
+    border: 1px solid #3e3e3e;
 }
 
 /* Ajustement du viewport */
@@ -1276,7 +1297,7 @@ body {
 .option-group select:focus,
 .option-group input:focus {
     outline: none;
-    border-color: #0066ff;
+    border-color: #007bff;
 }
 
 /* Aperçu 3D CSS pour les éléments - faces jointives */
@@ -2285,4 +2306,202 @@ body {
 
 .btn-primary:hover {
     background-color: #0052cc;
+}
+
+/* Styles pour l'interface de cotation */
+.dimension-ui-panel {
+    position: absolute !important;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    z-index: 10000 !important;
+    font-family: Arial, sans-serif;
+    min-width: 250px;
+    max-width: 300px;
+}
+
+.dimension-ui-panel h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.dimension-ui-panel label {
+    display: block;
+    margin-bottom: 4px;
+    color: #666;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.dimension-ui-panel select,
+.dimension-ui-panel input[type="number"],
+.dimension-ui-panel input[type="color"] {
+    width: 100%;
+    padding: 4px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.dimension-ui-panel select:focus,
+.dimension-ui-panel input:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+/* Style pour le panneau de cotation en mode édition */
+.dimension-ui-panel {
+    transition: all 0.2s ease;
+}
+
+.dimension-ui-panel #dimension-edit-controls {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Boutons d'édition avec effet hover */
+#apply-dimension-changes:hover {
+    background: #0056b3 !important;
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+}
+
+#cancel-dimension-edit:hover {
+    background: #555 !important;
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+}
+
+/* Style pour les options de cotation */
+.scale-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.scale-option:hover {
+    background: rgba(0, 102, 255, 0.1);
+}
+
+.scale-option.active {
+    background-color: #0066ff;
+    color: white;
+    font-weight: bold;
+}
+
+.scale-option.active::before {
+    content: '✓ ';
+    margin-right: 5px;
+}
+
+/* Affichage de l'échelle actuelle */
+#current-scale-display {
+    cursor: pointer;
+    color: #0078d4;
+    text-decoration: underline dotted #888;
+    transition: color 0.2s;
+}
+
+#current-scale-display:hover {
+    color: #0056d3;
+}
+
+/* Nouveau style pour le panneau de propriétés de cotation */
+#dimension-properties-panel {
+    background: #f9f9f9;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 8px;
+    color: #222;
+    font-size: 13px;
+}
+
+#dimension-properties-panel label {
+    font-size: 12px;
+    color: #333;
+}
+
+#dimension-properties-panel input,
+#dimension-properties-panel select {
+    margin-top: 2px;
+    margin-bottom: 4px;
+}
+
+#dimension-properties-panel button {
+    margin-top: 6px;
+}
+
+#dimension-properties-btn {
+    margin-bottom: 8px;
+}
+
+/* Styles pour les notifications d'import */
+.import-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #4CAF50;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 10000;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    max-width: 300px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.import-notification.error {
+    background: #f44336;
+}
+
+.import-notification.warning {
+    background: #ff9800;
+}
+
+.import-notification .close-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: auto;
+}
+
+/* Amélioration du menu dropdown pour l'import */
+.dropdown-content a[href="#import-collada"] {
+    position: relative;
+}
+
+.dropdown-content a[href="#import-collada"]:before {
+    content: "📁";
+    margin-right: 8px;
+}
+
+/* Style pour les objets importés */
+.imported-object {
+    border: 2px solid #2196F3 !important;
 }

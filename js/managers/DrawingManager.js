@@ -6,7 +6,8 @@ import { ExtendTool } from '../tools/ExtendTool.js';
 import { HatchTool } from '../tools/HatchTool.js';
 import { RectangleTool } from '../tools/RectangleTool.js';
 import { CircleTool } from '../tools/CircleTool.js';
-import { SurfaceTool } from '../tools/SurfaceTool.js'; // Import SurfaceTool
+import { SurfaceTool } from '../tools/SurfaceTool.js';
+import { DimensionTool } from '../tools/DimensionTool.js';
 
 export class DrawingManager {
     constructor(app) {
@@ -21,8 +22,9 @@ export class DrawingManager {
         this.showSnapGuides = true;
         this.shiftPressed = false;
         this.contextMenu = null;
-        this.polylineTooltip = null; // Nouvelle propriété pour l'infobulle
-        this.polylineArcMode = false; // Nouvelle propriété pour le mode arc
+        this.polylineTooltip = null;
+        this.polylineArcMode = false;
+        this.temporaryPolylineSegments = [];
         
         // Créer les outils
         this.lineTool = new LineTool(app);
@@ -30,12 +32,26 @@ export class DrawingManager {
         this.trimTool = new TrimTool(app);
         this.extendTool = new ExtendTool(app);
         this.hatchTool = new HatchTool(app);
-        this.rectangleTool = new RectangleTool(app); // Instantiate RectangleTool
-        this.circleTool = new CircleTool(app);       // Instantiate CircleTool
-        this.surfaceTool = new SurfaceTool(app);     // Instantiate SurfaceTool
+        this.rectangleTool = new RectangleTool(app);
+        this.circleTool = new CircleTool(app);
+        this.surfaceTool = new SurfaceTool(app);
+        this.dimensionTool = new DimensionTool(app);
+        
+        if (!app.dimensionTool) {
+            app.dimensionTool = this.dimensionTool;
+        }
+        
+        app.drawingManager = this;
         
         this.createContextMenu();
         this.createPolylineTooltip();
+
+        this.app.renderer.domElement.addEventListener('contextmenu', (e) => {
+            if (this.isDrawing && this.drawingMode === 'polyline') {
+                e.preventDefault();
+                this.showContextMenu(e.clientX, e.clientY);
+            }
+        });
     }
     
     createContextMenu() {
@@ -45,6 +61,9 @@ export class DrawingManager {
         this.contextMenu.innerHTML = `
             <div class="context-menu-item" id="undo-point">
                 <i class="fas fa-undo"></i> Annuler le point précédent
+            </div>
+            <div class="context-menu-item" id="enter-length">
+                <i class="fas fa-ruler"></i> Saisir la longueur
             </div>
             <div class="context-menu-item" id="arc-mode">
                 <i class="fas fa-bezier-curve"></i> Mode Arc
@@ -67,6 +86,13 @@ export class DrawingManager {
             e.stopPropagation();
             this.hideContextMenu();
             this.undoLastPoint();
+        });
+        
+        document.getElementById('enter-length').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.hideContextMenu();
+            this.showLengthInputDialog();
         });
         
         document.getElementById('arc-mode').addEventListener('click', (e) => {
@@ -136,6 +162,26 @@ export class DrawingManager {
     
     showContextMenu(x, y) {
         if (this.isDrawing && this.drawingMode === 'polyline' && this.drawingPoints.length >= 1) {
+            // Replace the invalid method with logic to calculate the world position
+            const canvasRect = this.app.renderer.domElement.getBoundingClientRect();
+            const normalizedX = ((x - canvasRect.left) / canvasRect.width) * 2 - 1;
+            const normalizedY = -((y - canvasRect.top) / canvasRect.height) * 2 + 1;
+            const mouseVector = new THREE.Vector3(normalizedX, normalizedY, 0.5);
+            mouseVector.unproject(this.app.camera);
+            this.rightClickPosition = mouseVector;
+            this.rightClickPosition.z = 0; // Ensure the position is on the XY plane for angle calculation
+
+            // Store the angle at the time of right-click
+            if (this.drawingPoints.length > 0) {
+                const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
+                // Assuming lastPoint.z is already 0 from previous operations
+                const dx = this.rightClickPosition.x - lastPoint.x;
+                const dy = this.rightClickPosition.y - lastPoint.y;
+                this.rightClickAngle = Math.atan2(dy, dx); // Stored in radians
+            } else {
+                this.rightClickAngle = 0; // Default if no previous point
+            }
+
             // Activer/désactiver l'option "Annuler le point précédent" selon le nombre de points
             const undoPointItem = document.getElementById('undo-point');
             if (this.drawingPoints.length <= 1) {
@@ -144,6 +190,16 @@ export class DrawingManager {
             } else {
                 undoPointItem.style.opacity = '1';
                 undoPointItem.style.pointerEvents = 'auto';
+            }
+            
+            // Activer/désactiver l'option "Saisir la longueur" selon le nombre de points
+            const enterLengthItem = document.getElementById('enter-length');
+            if (this.drawingPoints.length < 1) {
+                enterLengthItem.style.opacity = '0.5';
+                enterLengthItem.style.pointerEvents = 'none';
+            } else {
+                enterLengthItem.style.opacity = '1';
+                enterLengthItem.style.pointerEvents = 'auto';
             }
             
             // Activer/désactiver l'option "Fermer la polyligne" selon le nombre de points
@@ -238,73 +294,77 @@ export class DrawingManager {
 
     removeLastPolylineSegments(count) {
         let removed = 0;
-        const pointsToCheck = Math.min(count + 1, this.drawingPoints.length);
         
-        // Créer une liste des segments à supprimer en vérifiant les connexions avec les derniers points
-        const segmentsToRemove = [];
+        // Supprimer d'abord des segments temporaires
+        while (removed < count && this.temporaryPolylineSegments.length > 0) {
+            const segment = this.temporaryPolylineSegments.pop();
+            this.app.scene.remove(segment);
+            if (segment.geometry) segment.geometry.dispose();
+            if (segment.material) segment.material.dispose();
+            removed++;
+        }
         
-        for (let i = this.app.objects.length - 1; i >= 0 && removed < count; i--) {
-            const obj = this.app.objects[i];
-            if (obj instanceof THREE.Line && 
-                obj.geometry && 
-                obj.geometry.attributes.position &&
-                obj.geometry.attributes.position.count === 2 &&
-                obj.material instanceof THREE.LineBasicMaterial &&
-                obj !== this.tempObject) {
-                
-                const positions = obj.geometry.attributes.position;
-                const segmentStart = new THREE.Vector3(
-                    positions.getX(0),
-                    positions.getY(0),
-                    positions.getZ(0)
-                );
-                const segmentEnd = new THREE.Vector3(
-                    positions.getX(1),
-                    positions.getY(1),
-                    positions.getZ(1)
-                );
-                
-                // Vérifier si ce segment fait partie des derniers segments de la polyligne
-                for (let j = this.drawingPoints.length - 1; j >= Math.max(0, this.drawingPoints.length - pointsToCheck); j--) {
-                    if (j > 0) {
-                        const point1 = this.drawingPoints[j - 1];
-                        const point2 = this.drawingPoints[j];
-                        
-                        if ((segmentStart.distanceTo(point1) < 0.01 && segmentEnd.distanceTo(point2) < 0.01) ||
-                            (segmentStart.distanceTo(point2) < 0.01 && segmentEnd.distanceTo(point1) < 0.01)) {
-                            segmentsToRemove.push({index: i, object: obj});
-                            removed++;
-                            break;
+        // Si on n'a pas supprimé assez de segments temporaires, chercher dans les objets principaux
+        if (removed < count) {
+            const pointsToCheck = Math.min(count + 1, this.drawingPoints.length);
+            const segmentsToRemove = [];
+            
+            for (let i = this.app.objects.length - 1; i >= 0 && removed < count; i--) {
+                const obj = this.app.objects[i];
+                if (obj instanceof THREE.Line && 
+                    obj.geometry && 
+                    obj.geometry.attributes.position &&
+                    obj.geometry.attributes.position.count === 2 &&
+                    obj.material instanceof THREE.LineBasicMaterial &&
+                    obj !== this.tempObject) {
+                    
+                    const positions = obj.geometry.attributes.position;
+                    const segmentStart = new THREE.Vector3(
+                        positions.getX(0),
+                        positions.getY(0),
+                        positions.getZ(0)
+                    );
+                    const segmentEnd = new THREE.Vector3(
+                        positions.getX(1),
+                        positions.getY(1),
+                        positions.getZ(1)
+                    );
+                    
+                    // Vérifier si ce segment fait partie des derniers segments de la polyligne
+                    for (let j = this.drawingPoints.length - 1; j >= Math.max(0, this.drawingPoints.length - pointsToCheck); j--) {
+                        if (j > 0) {
+                            const point1 = this.drawingPoints[j - 1];
+                            const point2 = this.drawingPoints[j];
+                            
+                            if ((segmentStart.distanceTo(point1) < 0.01 && segmentEnd.distanceTo(point2) < 0.01) ||
+                                (segmentStart.distanceTo(point2) < 0.01 && segmentEnd.distanceTo(point1) < 0.01)) {
+                                segmentsToRemove.push({index: i, object: obj});
+                                removed++;
+                                break;
+                            }
                         }
                     }
                 }
             }
-        }
-        
-        // Supprimer les segments trouvés
-        // Trier par index décroissant pour éviter les problèmes d'index lors de la suppression
-        segmentsToRemove.sort((a, b) => b.index - a.index);
-        
-        for (const segment of segmentsToRemove) {
-            // Retirer de la scène
-            this.app.scene.remove(segment.object);
             
-            // Retirer des objets
-            this.app.objects.splice(segment.index, 1);
+            // Supprimer les segments trouvés
+            segmentsToRemove.sort((a, b) => b.index - a.index);
             
-            // Retirer du layer
-            const layerObjects = this.app.layers[this.app.currentLayer].objects;
-            const layerIndex = layerObjects.indexOf(segment.object);
-            if (layerIndex !== -1) {
-                layerObjects.splice(layerIndex, 1);
+            for (const segment of segmentsToRemove) {
+                this.app.scene.remove(segment.object);
+                this.app.objects.splice(segment.index, 1);
+                
+                const layerObjects = this.app.layers[this.app.currentLayer].objects;
+                const layerIndex = layerObjects.indexOf(segment.object);
+                if (layerIndex !== -1) {
+                    layerObjects.splice(layerIndex, 1);
+                }
+                
+                this.app.addToHistory('delete', segment.object);
+                
+                if (segment.object.geometry) segment.object.geometry.dispose();
+                if (segment.object.material) segment.object.material.dispose();
             }
-            
-            // Ajouter à l'historique
-            this.app.addToHistory('delete', segment.object);
-            
-            // Nettoyer la géométrie
-            if (segment.object.geometry) segment.object.geometry.dispose();
-            if (segment.object.material) segment.object.material.dispose();
         }
         
         return removed;
@@ -394,6 +454,248 @@ export class DrawingManager {
         }
     }
     
+    togglePolylineArcMode() {
+        this.polylineArcMode = !this.polylineArcMode;
+        
+        if (this.polylineArcMode) {
+            this.polylineArcPoints = [];
+            document.getElementById('command-output').textContent = 'Mode ARC activé - Cliquez pour le point de départ de l\'arc';
+        } else {
+            this.polylineArcPoints = [];
+            document.getElementById('command-output').textContent = 'Mode LIGNE activé - Cliquez pour continuer la polyligne';
+        }
+    }
+    
+    calculateArcMiddlePoint(startPoint, endPoint, mousePoint) {
+        // Calculer le point milieu de l'arc basé sur la position de la souris
+        const midPoint = new THREE.Vector3(
+            (startPoint.x + endPoint.x) / 2,
+            (startPoint.y + endPoint.y) / 2,
+            0
+        );
+        
+        // Calculer la direction perpendiculaire à la ligne start-end
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const perpX = -dy;
+        const perpY = dx;
+        const perpLength = Math.sqrt(perpX * perpX + perpY * perpY);
+        
+        if (perpLength < 0.001) return midPoint;
+        
+        // Normaliser la direction perpendiculaire
+        const perpNormX = perpX / perpLength;
+        const perpNormY = perpY / perpLength;
+        
+        // Calculer la distance de la souris à la ligne start-end
+        const mouseToMidX = mousePoint.x - midPoint.x;
+        const mouseToMidY = mousePoint.y - midPoint.y;
+        
+        // Projeter cette distance sur la direction perpendiculaire
+        const projection = mouseToMidX * perpNormX + mouseToMidY * perpNormY;
+        
+        // Limiter la courbure
+        const maxCurvature = Math.min(100, Math.sqrt(dx * dx + dy * dy) / 2);
+        const limitedProjection = Math.max(-maxCurvature, Math.min(maxCurvature, projection));
+        
+        return new THREE.Vector3(
+            midPoint.x + perpNormX * limitedProjection,
+            midPoint.y + perpNormY * limitedProjection,
+            0
+        );
+    }
+    
+    createArcGeometry(startPoint, middlePoint, endPoint) {
+        try {
+            const center = this.calculateCircleCenter(startPoint, middlePoint, endPoint);
+            if (!center) return null;
+            
+            const radius = center.distanceTo(startPoint);
+            if (radius < 0.001) return null;
+            
+            // Calculer les angles
+            const startAngle = Math.atan2(startPoint.y - center.y, startPoint.x - center.x);
+            const endAngle = Math.atan2(endPoint.y - center.y, endPoint.x - center.x);
+            const middleAngle = Math.atan2(middlePoint.y - center.y, middlePoint.x - center.x);
+            
+            // Déterminer la direction de l'arc (horaire ou anti-horaire)
+            let deltaStart = this.normalizeAngle(middleAngle - startAngle);
+            let deltaEnd = this.normalizeAngle(endAngle - middleAngle);
+            
+            let actualStartAngle = startAngle;
+            let actualEndAngle = endAngle;
+            
+            // Ajuster les angles pour un arc continu
+            if (deltaStart > 0 && deltaEnd > 0) {
+                // Arc anti-horaire
+                if (endAngle < startAngle) {
+                    actualEndAngle = endAngle + 2 * Math.PI;
+                }
+            } else if (deltaStart < 0 && deltaEnd < 0) {
+                // Arc horaire
+                if (endAngle > startAngle) {
+                    actualEndAngle = endAngle - 2 * Math.PI;
+                }
+            }
+            
+            // Créer les points de l'arc
+            const segments = Math.max(8, Math.floor(Math.abs(actualEndAngle - actualStartAngle) * 32 / (2 * Math.PI)));
+            const points = [];
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const angle = actualStartAngle + (actualEndAngle - actualStartAngle) * t;
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                points.push(new THREE.Vector3(x, y, 0));
+            }
+            
+            return new THREE.BufferGeometry().setFromPoints(points);
+        } catch (error) {
+            console.warn('Erreur lors de la création de l\'arc:', error);
+            return null;
+        }
+    }
+    
+    calculateCircleCenter(p1, p2, p3) {
+        const ax = p1.x, ay = p1.y;
+        const bx = p2.x, by = p2.y;
+        const cx = p3.x, cy = p3.y;
+        
+        const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+        if (Math.abs(d) < 0.0001) return null;
+        
+        const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
+        const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
+        
+        return new THREE.Vector3(ux, uy, 0);
+    }
+    
+    normalizeAngle(angle) {
+        while (angle > Math.PI) angle -= 2 * Math.PI;
+        while (angle < -Math.PI) angle += 2 * Math.PI;
+        return angle;
+    }
+    
+    createSurfaceFromPoints(points) {
+        if (points.length < 3) return;
+        
+        try {
+            // Créer une forme fermée
+            const shape = new THREE.Shape();
+            shape.moveTo(points[0].x, points[0].y);
+            
+            for (let i = 1; i < points.length; i++) {
+                shape.lineTo(points[i].x, points[i].y);
+            }
+            
+            // Créer la géométrie de la surface
+            const geometry = new THREE.ShapeGeometry(shape);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0xcccccc,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const surface = new THREE.Mesh(geometry, material);
+            surface.position.z = 0.001;
+            surface.renderOrder = 5;
+            
+            this.app.scene.add(surface);
+            this.app.objects.push(surface);
+            this.app.layers[this.app.currentLayer].objects.push(surface);
+            this.app.addToHistory('create', surface);
+            
+            console.log('Surface créée à partir de la polyligne fermée');
+        } catch (error) {
+            console.warn('Erreur lors de la création de la surface:', error);
+        }
+    }
+    
+    checkForClosedShape(line) {
+        // Vérifier si la ligne ferme un contour
+        // Cette méthode peut être étendue selon les besoins
+        console.log('Vérification de forme fermée pour:', line);
+    }
+    
+    checkForClosedShapeAndCreateSurface(polyline) {
+        // Vérifier si la polyligne forme un contour fermé
+        if (this.drawingPoints.length >= 3) {
+            const firstPoint = this.drawingPoints[0];
+            const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
+            
+            // Si les points de début et fin sont très proches, considérer comme fermé
+            if (firstPoint.distanceTo(lastPoint) < 0.1) {
+                this.createSurfaceFromPoints(this.drawingPoints);
+            }
+        }
+    }
+
+    cancelDrawing() {
+        if (this.app.currentTool === 'line' && this.lineTool.active) {
+            this.lineTool.cancel();
+        } else if (this.app.currentTool === 'rect' && this.rectangleTool.active) {
+            this.rectangleTool.cancel();
+        } else if (this.app.currentTool === 'circle' && this.circleTool.active) {
+            this.circleTool.cancel();
+        } else if (this.app.currentTool === 'parallel' && this.parallelTool.active) {
+            this.parallelTool.cancel();
+        } else if (this.app.currentTool === 'trim' && this.trimTool.active) {
+            this.trimTool.cancel();
+        } else if (this.app.currentTool === 'extend' && this.extendTool.active) {
+            this.extendTool.cancel();
+        } else if (this.app.currentTool === 'hatch' && this.hatchTool.active) {
+            this.hatchTool.cancel();
+        } else if (this.app.currentTool === 'surface' && this.surfaceTool.active) {
+            this.surfaceTool.cancel();
+        } else if (this.app.currentTool === 'dimension' && this.dimensionTool.active) {
+            this.dimensionTool.cancel();
+        } else if (this.isDrawing) {
+            if (this.drawingMode === 'polyline' && this.drawingPoints.length >= 0) {
+                this.hideContextMenu();
+                
+                // Nettoyer spécifiquement tous les segments temporaires de polyligne
+                if (this.temporaryPolylineSegments && this.temporaryPolylineSegments.length > 0) {
+                    this.temporaryPolylineSegments.forEach(seg => {
+                        this.app.scene.remove(seg);
+                        if (seg.geometry) seg.geometry.dispose();
+                        if (seg.material) seg.material.dispose();
+                    });
+                    this.temporaryPolylineSegments = [];
+                }
+            }
+            // Réinitialiser le mode arc si nécessaire
+            if (this.drawingMode === 'polyline') {
+                this.polylineArcMode = false;
+                this.polylineArcPoints = [];
+            }
+            
+            // Nettoyer tous les objets temporaires
+            this.clearAllTemporaryObjects();
+            
+            // Forcer un rendu pour s'assurer que tout est nettoyé
+            if (this.app.renderer && this.app.scene && this.app.camera) {
+                this.app.renderer.render(this.app.scene, this.app.camera);
+            }
+            
+            this.endDrawing();
+        }
+         
+        if (this.app.toolManager && this.app.currentTool !== 'select' &&
+            !['line', 'rect', 'circle', 'parallel', 'trim', 'extend', 'hatch'].includes(this.app.currentTool)) {
+            this.app.toolManager.setTool('select');
+        } else if (!this.lineTool.active && !this.rectangleTool.active && !this.circleTool.active &&
+                   !this.parallelTool.active && !this.trimTool.active && !this.extendTool.active && !this.hatchTool.active &&
+                   !this.isDrawing) {
+             if (this.app.toolManager && this.app.currentTool !== 'select') {
+                this.app.toolManager.setTool('select');
+             }
+        }
+    }
+
+    // ...existing code...
+
     calculatePolylineDistance(points, includePreviewPoint = null) {
         if (points.length < 2) return 0;
         
@@ -421,60 +723,54 @@ export class DrawingManager {
             case 'line':
                 this.lineTool.handleClick(adjustedPoint);
                 break;
-            case 'rect': // Delegate to RectangleTool
+            case 'rect':
                 this.rectangleTool.handleClick(adjustedPoint);
                 break;
-            case 'circle': // Delegate to CircleTool
+            case 'circle':
                 this.circleTool.handleClick(adjustedPoint);
                 break;
             case 'parallel':
                 this.parallelTool.handleClick(adjustedPoint);
                 break;
-                
             case 'trim':
                 this.trimTool.handleClick(adjustedPoint);
                 break;
-                
             case 'extend':
                 this.extendTool.handleClick(adjustedPoint);
                 break;
-                
             case 'hatch':
                 this.hatchTool.handleClick(adjustedPoint);
                 break;
-                
-            case 'surface': // Add surface tool case
+            case 'surface':
                 this.surfaceTool.handleClick(adjustedPoint);
                 break;
-                
+            case 'dimension':
+                this.dimensionTool.handleClick(adjustedPoint);
+                break;
             case 'polyline':
+                this.clearAllTemporaryObjects();
                 if (!this.isDrawing || this.drawingMode !== 'polyline') {
                     this.startDrawing('polyline');
-                    this.polylineArcMode = false; // Réinitialiser le mode arc
+                    this.polylineArcMode = false;
                     this.polylineArcPoints = [];
                 }
-
                 if (this.polylineArcMode) {
                     // Mode arc de la polyligne
                     if (!this.polylineArcPoints) {
                         this.polylineArcPoints = [];
                     }
                     
-                    // Si c'est le premier point de l'arc et qu'on a déjà des points dans la polyligne
                     if (this.polylineArcPoints.length === 0 && this.drawingPoints.length > 0) {
-                        // Utiliser le dernier point de la polyligne comme point de départ
                         this.polylineArcPoints.push(this.drawingPoints[this.drawingPoints.length - 1].clone());
                         this.polylineArcPoints.push(adjustedPoint);
                         cmdOutput.textContent = 'Arc: Déplacez la souris pour ajuster le rayon et cliquez pour valider';
                     } else if (this.polylineArcPoints.length === 0) {
-                        // Pas de points dans la polyligne, utiliser le point cliqué comme départ
                         this.polylineArcPoints.push(adjustedPoint);
                         cmdOutput.textContent = 'Arc: Cliquez pour le point final de l\'arc';
                     } else if (this.polylineArcPoints.length === 1) {
                         this.polylineArcPoints.push(adjustedPoint);
                         cmdOutput.textContent = 'Arc: Déplacez la souris pour ajuster le rayon et cliquez pour valider';
                     } else if (this.polylineArcPoints.length === 2) {
-                        // Créer l'arc avec le point de passage basé sur la position de la souris
                         const startPoint = this.polylineArcPoints[0];
                         const endPoint = this.polylineArcPoints[1];
                         const middlePoint = this.calculateArcMiddlePoint(startPoint, endPoint, adjustedPoint);
@@ -482,12 +778,10 @@ export class DrawingManager {
                         const arcGeometry = this.createArcGeometry(startPoint, middlePoint, endPoint);
                         
                         if (arcGeometry) {
-                            // Extraire les points de l'arc
                             const positions = arcGeometry.attributes.position;
                             let startIndex = 0;
                             let arcPointCount = 0;
                             
-                            // Si on a déjà des points et que le premier point de l'arc est le même que le dernier de la polyligne
                             if (this.drawingPoints.length > 0) {
                                 const lastPolyPoint = this.drawingPoints[this.drawingPoints.length - 1];
                                 const firstArcPoint = new THREE.Vector3(
@@ -496,11 +790,10 @@ export class DrawingManager {
                                     positions.getZ(0)
                                 );
                                 if (lastPolyPoint.distanceTo(firstArcPoint) < 0.01) {
-                                    startIndex = 1; // Skip le premier point pour éviter le doublon
+                                    startIndex = 1;
                                 }
                             }
-                            
-                            // Ajouter les points de l'arc à la polyligne
+
                             for (let i = startIndex; i < positions.count; i++) {
                                 const point = new THREE.Vector3(
                                     positions.getX(i),
@@ -511,14 +804,14 @@ export class DrawingManager {
                                 arcPointCount++;
                             }
                             
-                            // Mémoriser le nombre de points ajoutés pour cet arc
                             this.lastArcSegmentCount = arcPointCount;
                             
-                            // Créer les segments de ligne pour l'arc
                             const segmentStartIndex = this.drawingPoints.length - arcPointCount;
                             for (let i = segmentStartIndex; i < this.drawingPoints.length - 1; i++) {
                                 const p1 = this.drawingPoints[i];
                                 const p2 = this.drawingPoints[i + 1];
+                                
+                                if (p1.distanceTo(p2) < 0.01) continue;
                                 
                                 const segmentGeometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
                                 const material = new THREE.LineBasicMaterial({
@@ -529,86 +822,55 @@ export class DrawingManager {
                                 const segment = new THREE.Line(segmentGeometry, material);
                                 segment.renderOrder = 10;
                                 this.app.scene.add(segment);
-                                this.app.objects.push(segment);
-                                this.app.layers[this.app.currentLayer].objects.push(segment);
-                                this.app.addToHistory('create', segment);
+                                this.temporaryPolylineSegments.push(segment);
                             }
                         }
                         
-                        // Réinitialiser pour le prochain arc ou ligne
                         this.polylineArcPoints = [];
-                        this.polylineArcMode = false; // Revenir au mode ligne par défaut
+                        this.polylineArcMode = false;
                         
                         const totalDistance = this.calculatePolylineDistance(this.drawingPoints);
                         cmdOutput.textContent = `Distance totale: ${totalDistance.toFixed(2)} cm - Mode LIGNE - Cliquez pour le point suivant`;
                     }
                 } else {
-                    // Mode ligne normal de la polyligne (code existant)
+                    // Mode ligne normal de la polyligne
                     if (this.drawingPoints.length === 0) {
                         this.drawingPoints.push(adjustedPoint);
                         cmdOutput.textContent = 'Cliquez pour le point suivant (clic droit pour options)';
                     } else {
                         const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
-                        let finalSegmentPoint = adjustedPoint; // Default to the point from SnapManager
+                        let finalSegmentPoint = adjustedPoint;
 
-                        const snapToCloseDistance = 0.5; // Tolerance for snapping to the start point to close the polyline
-
-                        // Check if SnapManager found an intersection or high-priority snap
+                        const snapToCloseDistance = 0.5;
                         const isHighPrioritySnap = this.app.snapManager.currentSnapType === 'Intersection' || 
                                                  this.app.snapManager.currentSnapType?.includes('Point') ||
                                                  this.app.snapManager.currentSnapType === 'Extrémité';
 
-                        // Prioritize snapping to the start point for closing
                         if (this.drawingPoints.length >= 2 && adjustedPoint.distanceTo(this.drawingPoints[0]) < snapToCloseDistance) {
                             finalSegmentPoint = this.drawingPoints[0].clone();
                         } else if (isHighPrioritySnap) {
-                            // If SnapManager found a high-priority snap (intersection, endpoint, etc.), use it directly
                             finalSegmentPoint = adjustedPoint;
                         } else if (this.angleSnap && !this.shiftPressed) {
-                            // Apply angle snapping only if no high-priority snap was found
                             finalSegmentPoint = this.snapToAngleIncrement(lastPoint, adjustedPoint, this.angleSnapIncrement);
                         }
-                        // Else, finalSegmentPoint remains adjustedPoint (from SnapManager, possibly grid-snapped)
                         
                         this.drawingPoints.push(finalSegmentPoint);
-                        
-                        // Réinitialiser le compteur d'arc car c'est un segment simple
                         this.lastArcSegmentCount = null;
 
-                        // Créer une ligne continue pour le segment confirmé
                         const geometry = new THREE.BufferGeometry().setFromPoints([lastPoint, finalSegmentPoint]);
                         const material = new THREE.LineBasicMaterial({
-                            color: 0x000000, // Noir
-                            linewidth: 3,    // Épais
+                            color: 0x000000,
+                            linewidth: 3,
                             transparent: false
                         });
                         const confirmedLine = new THREE.Line(geometry, material);
                         confirmedLine.renderOrder = 10;
                         this.app.scene.add(confirmedLine);
+                        this.temporaryPolylineSegments.push(confirmedLine);
 
-                        // Ajouter la ligne confirmée à l'historique
-                        this.app.objects.push(confirmedLine);
-                        this.app.layers[this.app.currentLayer].objects.push(confirmedLine);
-                        this.app.addToHistory('create', confirmedLine);
-
-                        // Mettre à jour l'interface utilisateur
                         const totalDistance = this.calculatePolylineDistance(this.drawingPoints);
                         cmdOutput.textContent = `Distance totale: ${totalDistance.toFixed(2)} cm - Cliquez pour le point suivant (clic droit pour options)`;
                     }
-                }
-                break;
-                
-            case 'arc':
-                if (!this.isDrawing) {
-                    this.startDrawing('arc');
-                    this.drawingPoints.push(adjustedPoint);
-                    cmdOutput.textContent = 'Cliquez pour le point de passage de l\'arc';
-                } else if (this.drawingPoints.length === 1) {
-                    this.drawingPoints.push(adjustedPoint);
-                    cmdOutput.textContent = 'Cliquez pour le point final de l\'arc';
-                } else {
-                    this.drawingPoints.push(adjustedPoint);
-                    this.finishArc();
                 }
                 break;
                 
@@ -621,7 +883,6 @@ export class DrawingManager {
     }
     
     startDrawing(mode) {
-        // Deactivate all tools first to ensure clean state
         this.lineTool.deactivate();
         this.parallelTool.deactivate();
         this.trimTool.deactivate();
@@ -629,18 +890,18 @@ export class DrawingManager {
         this.hatchTool.deactivate();
         this.rectangleTool.deactivate();
         this.circleTool.deactivate();
-        this.surfaceTool.deactivate(); // Add surface tool deactivation
+        this.surfaceTool.deactivate();
+        this.dimensionTool.deactivate();
 
-        this.isDrawing = false; // Reset general drawing flag
-        this.drawingMode = mode; // Store current mode for context
-        this.drawingPoints = []; // Clear points for modes that use this (like polyline)
+        this.isDrawing = false;
+        this.drawingMode = mode;
+        this.drawingPoints = [];
         
-        if (this.tempObject) { // Clear any old tempObject from DrawingManager itself
+        if (this.tempObject) {
             this.app.scene.remove(this.tempObject);
             this.tempObject = null;
         }
 
-        // Activate the specific tool
         if (mode === 'line') {
             this.lineTool.activate();
         } else if (mode === 'parallel') {
@@ -655,93 +916,82 @@ export class DrawingManager {
             this.rectangleTool.activate();
         } else if (mode === 'circle') {
             this.circleTool.activate();
-        } else if (mode === 'surface') { // Add surface tool activation
+        } else if (mode === 'surface') {
             this.surfaceTool.activate();
+        } else if (mode === 'dimension') {
+            this.dimensionTool.activate();
         } else if (mode === 'polyline') {
-            this.isDrawing = true; // Polyline uses DrawingManager's isDrawing flag
+            this.isDrawing = true;
+            this.temporaryPolylineSegments = [];
             this.app.controls.enabled = false;
             document.getElementById('command-output').textContent = 'Cliquez pour le premier point de la polyligne';
         } else {
-            // For other modes like box, sphere, cylinder that might be single-click
             this.isDrawing = true;
             this.app.controls.enabled = false;
         }
     }
     
     updateDrawingPreview(currentPoint, event) {
-        // console.log(`DM.updateDrawingPreview: tool=${this.app.currentTool}, currentPoint=(${currentPoint?.x.toFixed(2)}, ${currentPoint?.y.toFixed(2)})`);
-
-        // Delegate to active tool if it has a mouse move handler
+        if (this.contextMenu && this.contextMenu.style.display === 'block') {
+            return;
+        }
+        if (document.getElementById('length-input-popup')) {
+            return;
+        }
+        
         if (this.app.currentTool === 'line' && this.lineTool.active && this.lineTool.isDrawing) {
-            // console.log("DM: Delegating to LineTool.updatePreview");
             this.lineTool.updatePreview(currentPoint);
             return;
         } else if (this.app.currentTool === 'rect' && this.rectangleTool.active) {
-            // console.log("DM: Delegating to RectangleTool.handleMouseMove, active:", this.rectangleTool.active, "startPoint:", !!this.rectangleTool.startPoint);
             this.rectangleTool.handleMouseMove(currentPoint);
             return;
         } else if (this.app.currentTool === 'circle' && this.circleTool.active) {
-            // console.log("DM: Delegating to CircleTool.handleMouseMove, active:", this.circleTool.active, "centerPoint:", !!this.circleTool.centerPoint);
             this.circleTool.handleMouseMove(currentPoint);
             return;
         } else if (this.app.currentTool === 'parallel' && this.parallelTool.active) {
-            // console.log("DM: Delegating to ParallelTool.updatePreview");
             this.parallelTool.updatePreview(currentPoint);
             return;
         } else if (this.app.currentTool === 'trim' && this.trimTool.active) {
-            // console.log("DM: Delegating to TrimTool.updatePreview");
             this.trimTool.updatePreview(currentPoint);
             return;
-        }
-        
-        // Fallback for polyline or other tools managed directly by DrawingManager's tempObject
-        if (!this.isDrawing || (this.drawingMode !== 'polyline' && this.drawingPoints.length === 0)) {
-            // console.log("DM.updateDrawingPreview: Not drawing or no points for polyline/generic.");
+        } else if (this.app.currentTool === 'dimension' && this.dimensionTool.active) {
+            this.dimensionTool.updatePreview(currentPoint);
             return;
         }
         
-        // Nettoyer l'objet temporaire précédent
+        if (!this.isDrawing || (this.drawingMode !== 'polyline' && this.drawingPoints.length === 0)) {
+            return;
+        }
+        
         if (this.tempObject) {
             this.app.scene.remove(this.tempObject);
             if (this.tempObject.geometry) this.tempObject.geometry.dispose();
             if (this.tempObject.material) this.tempObject.material.dispose();
             this.tempObject = null;
         }
+        
         this.clearSnapHelpers();
 
-        // Ajouter une aide visuelle des axes pour les polylignes
-        if (this.drawingMode === 'polyline' && this.isDrawing && this.drawingPoints.length > 0) {
-            const startPoint = this.drawingPoints[this.drawingPoints.length - 1];
-            this.showLineSnapGuides(startPoint, currentPoint);
-        }
-        
-        // Pour la polyligne, utiliser le point d'accrochage s'il est disponible
-        let previewPoint = currentPoint; // currentPoint is already snapped by SnapManager
+        let previewPoint = currentPoint;
 
         if (this.drawingMode === 'polyline' && this.isDrawing && this.drawingPoints.length > 0) {
             const startPoint = this.drawingPoints[this.drawingPoints.length - 1];
-            const snapToCloseDistance = 0.5; // Tolerance for snapping to the start point
+            const snapToCloseDistance = 0.5;
 
-            // Check if SnapManager found an intersection or high-priority snap
             const isHighPrioritySnap = this.app.snapManager.currentSnapType === 'Intersection' || 
                                      this.app.snapManager.currentSnapType?.includes('Point') ||
                                      this.app.snapManager.currentSnapType === 'Extrémité';
 
-            // Prioritize snapping to the start point for closing in preview
             if (this.drawingPoints.length >= 2 && currentPoint.distanceTo(this.drawingPoints[0]) < snapToCloseDistance) {
                 previewPoint = this.drawingPoints[0].clone();
             } else if (isHighPrioritySnap) {
-                // If SnapManager found a high-priority snap (intersection, endpoint, etc.), use it directly
                 previewPoint = currentPoint;
             } else if (this.angleSnap && !this.shiftPressed) {
-                // Apply angle snapping only if no high-priority snap was found
                 previewPoint = this.snapToAngleIncrement(startPoint, currentPoint, this.angleSnapIncrement);
             }
-            // Else, previewPoint remains currentPoint (from SnapManager, possibly grid-snapped)
 
             this.showLineSnapGuides(startPoint, previewPoint);
 
-            // Calculate distances and angles
             const totalDistance = this.calculatePolylineDistance(this.drawingPoints, previewPoint);
             const segmentDistance = this.drawingPoints.length > 0
                 ? this.drawingPoints[this.drawingPoints.length - 1].distanceTo(previewPoint)
@@ -760,15 +1010,12 @@ export class DrawingManager {
                 const prevAngle = Math.atan2(prevDy, prevDx) * (180 / Math.PI);
                 const prevNormalizedAngle = ((prevAngle % 360) + 360) % 360;
                 
-                // Calculate the relative angle between current segment and previous segment
                 relativeAngle = normalizedAngle - prevNormalizedAngle;
                 
-                // Normalize to -180 to 180 range
                 if (relativeAngle > 180) relativeAngle -= 360;
                 if (relativeAngle < -180) relativeAngle += 360;
             }
 
-            // Show tooltip with both angles
             if (event) {
                 this.showPolylineTooltip(event.clientX, event.clientY, totalDistance, segmentDistance, normalizedAngle, relativeAngle);
             }
@@ -777,13 +1024,11 @@ export class DrawingManager {
         switch (this.drawingMode) {
             case 'polyline':
                 if (this.polylineArcMode && this.polylineArcPoints && this.polylineArcPoints.length > 0) {
-                    // Preview pour le mode arc
                     if (this.polylineArcPoints.length === 1) {
-                        // Ligne du point de départ vers la souris
                         const points = [this.polylineArcPoints[0], currentPoint];
                         const geometry = new THREE.BufferGeometry().setFromPoints(points);
                         const material = new THREE.LineDashedMaterial({ 
-                            color: 0xff0000, // Rouge pour indiquer le mode arc
+                            color: 0xff0000,
                             linewidth: 2,
                             scale: 1,
                             dashSize: 0.3,
@@ -796,7 +1041,6 @@ export class DrawingManager {
                         this.tempObject.renderOrder = 999;
                         this.app.scene.add(this.tempObject);
                     } else if (this.polylineArcPoints.length === 2) {
-                        // Preview de l'arc avec ajustement du rayon
                         const startPoint = this.polylineArcPoints[0];
                         const endPoint = this.polylineArcPoints[1];
                         const middlePoint = this.calculateArcMiddlePoint(startPoint, endPoint, currentPoint);
@@ -804,7 +1048,7 @@ export class DrawingManager {
                         const arcGeometry = this.createArcGeometry(startPoint, middlePoint, endPoint);
                         if (arcGeometry) {
                             const material = new THREE.LineDashedMaterial({ 
-                                color: 0xff0000, // Rouge pour le mode arc
+                                color: 0xff0000,
                                 linewidth: 3,
                                 scale: 1,
                                 dashSize: 0.3,
@@ -817,7 +1061,6 @@ export class DrawingManager {
                             this.tempObject.renderOrder = 999;
                             this.app.scene.add(this.tempObject);
                             
-                            // Afficher le rayon dans le tooltip
                             if (event) {
                                 const center = this.calculateCircleCenter(startPoint, middlePoint, endPoint);
                                 if (center) {
@@ -836,14 +1079,12 @@ export class DrawingManager {
                         }
                     }
                 } else {
-                    // Mode ligne normal (code existant)
                     if (this.drawingPoints.length > 0) {
-                        // Créer uniquement la ligne de preview du dernier point au point actuel
                         const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
                         const points = [lastPoint, previewPoint];
                         const geometry = new THREE.BufferGeometry().setFromPoints(points);
                         const material = new THREE.LineDashedMaterial({ 
-                            color: 0x666666, // Gris pour le distinguer des lignes confirmées
+                            color: 0x666666,
                             linewidth: 2,
                             scale: 1,
                             dashSize: 0.3,
@@ -853,51 +1094,14 @@ export class DrawingManager {
                         });
                         this.tempObject = new THREE.Line(geometry, material);
                         this.tempObject.computeLineDistances();
-                        this.tempObject.renderOrder = 999; // Assurez-vous qu'il est rendu au-dessus
-                        this.app.scene.add(this.tempObject);
-                    }
-                }
-                break;
-                
-            case 'arc':
-                if (this.drawingPoints.length === 1) {
-                    // Aperçu simple avec une ligne droite en pointillés pour le deuxième point
-                    const points = [this.drawingPoints[0], currentPoint];
-                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                    const material = new THREE.LineDashedMaterial({ 
-                        color: 0x000000,
-                        linewidth: 3,
-                        scale: 1,
-                        dashSize: 2,
-                        gapSize: 2,
-                        opacity: 0.5,
-                        transparent: true
-                    });
-                    this.tempObject = new THREE.Line(geometry, material);
-                    this.tempObject.computeLineDistances();
-                    this.app.scene.add(this.tempObject);
-                } else if (this.drawingPoints.length === 2) {
-                    // Créer un aperçu de l'arc en pointillés
-                    const arcGeometry = this.createArcGeometry(this.drawingPoints[0], this.drawingPoints[1], currentPoint);
-                    if (arcGeometry) {
-                        const material = new THREE.LineDashedMaterial({ 
-                            color: 0x000000,
-                            linewidth: 3,
-                            scale: 1,
-                            dashSize: 2,
-                            gapSize: 2,
-                            opacity: 0.5,
-                            transparent: true
-                        });
-                        this.tempObject = new THREE.Line(arcGeometry, material);
-                        this.tempObject.computeLineDistances();
+                        this.tempObject.renderOrder = 999;
                         this.app.scene.add(this.tempObject);
                     }
                 }
                 break;
         }
     }
-    
+
     finishLine() {
         if (this.drawingPoints.length >= 2) {
             const geometry = new THREE.BufferGeometry().setFromPoints(this.drawingPoints);
@@ -918,14 +1122,12 @@ export class DrawingManager {
             this.app.objects.push(line);
             this.app.layers[this.app.currentLayer].objects.push(line);
             
-            // Ajouter à l'historique après création
             this.app.addToHistory('create', line);
             
             if (this.app.uiManager) {
                 this.app.uiManager.updateHistoryPanel();
             }
             
-            // Vérifier si cette ligne ferme un contour
             this.checkForClosedShape(line);
         }
         
@@ -942,7 +1144,6 @@ export class DrawingManager {
             const centerY = (p1.y + p2.y) / 2;
             
             const geometry = new THREE.PlaneGeometry(width, height);
-            // Utiliser MeshPhongMaterial pour supporter les ombres
             const material = new THREE.MeshPhongMaterial({ 
                 color: 0xffffff,
                 side: THREE.DoubleSide,
@@ -957,7 +1158,6 @@ export class DrawingManager {
             rect.castShadow = true;
             rect.receiveShadow = true;
             
-            // Ajouter des arêtes noires
             const edges = new THREE.EdgesGeometry(geometry);
             const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ 
                 color: 0x000000,
@@ -975,7 +1175,6 @@ export class DrawingManager {
             this.app.scene.add(rect);
             this.app.objects.push(rect);
             
-            // Vérifier que les layers existent
             if (this.app.layers && this.app.layers.length > 0) {
                 const layerIndex = this.app.currentLayer || 0;
                 if (this.app.layers[layerIndex]) {
@@ -985,7 +1184,6 @@ export class DrawingManager {
             
             this.app.addToHistory('create', rect);
             
-            // Mise à jour de l'interface si disponible
             if (this.app.uiManager) {
                 this.app.uiManager.updateHistoryPanel();
             }
@@ -1000,7 +1198,6 @@ export class DrawingManager {
             const radius = center.distanceTo(this.drawingPoints[1]) || 0.1;
             
             const geometry = new THREE.CircleGeometry(radius, 32);
-            // Utiliser MeshPhongMaterial pour supporter les ombres
             const material = new THREE.MeshPhongMaterial({ 
                 color: 0xffffff,
                 side: THREE.DoubleSide,
@@ -1016,7 +1213,6 @@ export class DrawingManager {
             circle.castShadow = true;
             circle.receiveShadow = true;
             
-            // Ajouter des arêtes noires
             const edges = new THREE.EdgesGeometry(geometry);
             const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ 
                 color: 0x000000,
@@ -1028,7 +1224,6 @@ export class DrawingManager {
             this.app.scene.add(circle);
             this.app.objects.push(circle);
             
-            // Vérifier que les layers existent
             if (this.app.layers && this.app.layers.length > 0) {
                 const layerIndex = this.app.currentLayer || 0;
                 if (this.app.layers[layerIndex]) {
@@ -1038,7 +1233,6 @@ export class DrawingManager {
             
             this.app.addToHistory('create', circle);
             
-            // Mise à jour de l'interface si disponible
             if (this.app.uiManager) {
                 this.app.uiManager.updateHistoryPanel();
             }
@@ -1049,10 +1243,12 @@ export class DrawingManager {
     
     finishPolyline() {
         if (this.drawingPoints.length >= 2) {
+            this.clearAllTemporaryObjects();
+
             const geometry = new THREE.BufferGeometry().setFromPoints(this.drawingPoints);
             const material = new THREE.LineBasicMaterial({ 
-                color: 0x000000, // Noir
-                linewidth: 5,    // Épais
+                color: 0x000000,
+                linewidth: 5,
                 opacity: 1,
                 transparent: false
             });
@@ -1060,24 +1256,24 @@ export class DrawingManager {
             polyline.renderOrder = 10;
             polyline.updateMatrix();
             polyline.matrixAutoUpdate = true;
-            
             this.app.scene.add(polyline);
             this.app.objects.push(polyline);
             this.app.layers[this.app.currentLayer].objects.push(polyline);
-            
-            // Ajouter à l'historique après création
             this.app.addToHistory('create', polyline);
-            
+
+            this.temporaryPolylineSegments.forEach(seg => {
+                this.app.scene.remove(seg);
+                if (seg.geometry) seg.geometry.dispose();
+                if (seg.material) seg.material.dispose();
+            });
+            this.temporaryPolylineSegments = [];
+
             if (this.app.uiManager) {
                 this.app.uiManager.updateHistoryPanel();
             }
-            
-            // Afficher la distance finale
             const totalDistance = this.calculatePolylineDistance(this.drawingPoints);
             document.getElementById('command-output').textContent = 
                 `Polyligne créée - Distance totale: ${totalDistance.toFixed(2)} cm`;
-            
-            // Vérifier si cette polyligne ferme un contour et créer une surface
             this.checkForClosedShapeAndCreateSurface(polyline);
         }
         
@@ -1096,8 +1292,8 @@ export class DrawingManager {
                 mesh.position.copy(position);
                 mesh.position.z = 5;
                 mesh.renderOrder = 10;
-                mesh.castShadow = true; // Projette des ombres
-                mesh.receiveShadow = true; // Reçoit des ombres
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
                 
                 const boxEdges = new THREE.EdgesGeometry(geometry);
                 const boxLines = new THREE.LineSegments(boxEdges, new THREE.LineBasicMaterial({ 
@@ -1195,7 +1391,7 @@ export class DrawingManager {
     }
 
     showLineSnapGuides(startPoint, endPoint) {
-        const angleIncrement = 45; // Afficher les guides uniquement tous les 45 degrés
+        const angleIncrement = 45;
         const guideLength = 100;
 
         for (let angle = 0; angle < 360; angle += angleIncrement) {
@@ -1209,23 +1405,22 @@ export class DrawingManager {
             const points = [startPoint, guideEnd];
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-            // Déterminer la couleur du guide en fonction de son parallélisme avec les axes
-            const isHorizontal = angle === 0 || angle === 180; // Parallèle à l'axe rouge
-            const isVertical = angle === 90 || angle === 270;  // Parallèle à l'axe vert
-            const color = isHorizontal ? 0xff0000 : isVertical ? 0x00ff00 : 0xd3d3d3; // Rouge, vert ou gris clair
+            const isHorizontal = angle === 0 || angle === 180;
+            const isVertical = angle === 90 || angle === 270;
+            const color = isHorizontal ? 0xff0000 : isVertical ? 0x00ff00 : 0xd3d3d3;
 
             const material = new THREE.LineDashedMaterial({
                 color: color,
                 linewidth: 1,
                 scale: 1,
-                dashSize: 0.5, // Taille des traits
-                gapSize: 0.5,  // Taille des espaces pour un effet pointillé
-                opacity: 0.7, // Semi-transparent
+                dashSize: 0.5,
+                gapSize: 0.5,
+                opacity: 0.7,
                 transparent: true
             });
 
             const guideLine = new THREE.Line(geometry, material);
-            guideLine.computeLineDistances(); // Nécessaire pour les lignes en pointillés
+            guideLine.computeLineDistances();
             guideLine.renderOrder = 998;
 
             this.app.scene.add(guideLine);
@@ -1236,11 +1431,9 @@ export class DrawingManager {
     showAngleTooltip(point3D, angle) {
         if (!this.polylineTooltip) return;
 
-        // Project the 3D point to screen coordinates
         const vector = point3D.clone();
         vector.project(this.app.camera);
 
-        // Convert normalized coordinates (-1 to 1) to screen coordinates
         const rect = this.app.renderer.domElement.getBoundingClientRect();
         const x = (vector.x + 1) / 2 * rect.width + rect.left;
         const y = -(vector.y - 1) / 2 * rect.height + rect.top;
@@ -1266,6 +1459,23 @@ export class DrawingManager {
             `Dist: ${distance.toFixed(2)} cm | Angle: ${normalizedAngle.toFixed(1)}°`;
     }
     
+    clearAllTemporaryObjects() {
+        if (this.tempObject) {
+            this.app.scene.remove(this.tempObject);
+            if (this.tempObject.geometry) this.tempObject.geometry.dispose();
+            if (this.tempObject.material) this.tempObject.material.dispose();
+            this.tempObject = null;
+        }
+        
+        this.clearSnapHelpers();
+        
+        if (this.app.snapManager) {
+            this.app.snapManager.hideSnapIndicator();
+        }
+        
+        this.hidePolylineTooltip();
+    }
+
     clearSnapHelpers() {
         this.snapHelpers.forEach(helper => {
             this.app.scene.remove(helper);
@@ -1275,666 +1485,244 @@ export class DrawingManager {
         this.snapHelpers = [];
     }
     
-    cancelDrawing() {
-        if (this.app.currentTool === 'line' && this.lineTool.active) {
-            this.lineTool.cancel();
-        } else if (this.app.currentTool === 'rect' && this.rectangleTool.active) {
-            this.rectangleTool.cancel();
-        } else if (this.app.currentTool === 'circle' && this.circleTool.active) {
-            this.circleTool.cancel();
-        } else if (this.app.currentTool === 'parallel' && this.parallelTool.active) {
-            this.parallelTool.cancel();
-        } else if (this.app.currentTool === 'trim' && this.trimTool.active) {
-            this.trimTool.cancel();
-        } else if (this.app.currentTool === 'extend' && this.extendTool.active) {
-            this.extendTool.cancel();
-        } else if (this.app.currentTool === 'hatch' && this.hatchTool.active) {
-            this.hatchTool.cancel();
-        } else if (this.app.currentTool === 'surface' && this.surfaceTool.active) { // Add surface tool cancel
-            this.surfaceTool.cancel();
-        } else if (this.isDrawing) { // For tools like polyline still using this.isDrawing
-            if (this.drawingMode === 'polyline' && this.drawingPoints.length >= 0) { // Allow cancel even with 0 points for polyline
-                this.hideContextMenu();
-            }
-            // Réinitialiser le mode arc si nécessaire
-            if (this.drawingMode === 'polyline') {
-                this.polylineArcMode = false;
-                this.polylineArcPoints = [];
-            }
-            this.endDrawing(); // Generic cleanup
-        }
-         // Ensure current tool is reset to select if a tool specific cancel doesn't do it.
-        if (this.app.toolManager && this.app.currentTool !== 'select' &&
-            !['line', 'rect', 'circle', 'parallel', 'trim', 'extend', 'hatch'].includes(this.app.currentTool)) {
-            // If it's a mode like polyline that was cancelled by Esc via WebCAD.js
-            this.app.toolManager.setTool('select');
-        } else if (!this.lineTool.active && !this.rectangleTool.active && !this.circleTool.active &&
-                   !this.parallelTool.active && !this.trimTool.active && !this.extendTool.active && !this.hatchTool.active &&
-                   !this.isDrawing) { // If all tools are inactive and not in polyline drawing mode
-             if (this.app.toolManager && this.app.currentTool !== 'select') {
-                this.app.toolManager.setTool('select');
-             }
-        }
-    }
-    
-    endDrawing() { // This is now more for polyline or generic cases
+    endDrawing() {
         this.isDrawing = false;
         this.drawingPoints = [];
         
-        if (this.tempObject) {
-            this.app.scene.remove(this.tempObject);
-            if (this.tempObject.geometry) this.tempObject.geometry.dispose();
-            if (this.tempObject.material) this.tempObject.material.dispose();
-            this.tempObject = null;
+        if (this.temporaryPolylineSegments && this.temporaryPolylineSegments.length > 0) {
+            this.temporaryPolylineSegments.forEach(seg => {
+                this.app.scene.remove(seg);
+                if (seg.geometry) seg.geometry.dispose();
+                if (seg.material) seg.material.dispose();
+            });
+            this.temporaryPolylineSegments = [];
         }
         
-        this.clearSnapHelpers();
-        this.app.snapManager.hideTooltip();
-        this.hidePolylineTooltip(); // Masquer l'infobulle de la polyligne
+        this.clearAllTemporaryObjects();
+        
+        if (this.app.renderer && this.app.scene && this.app.camera) {
+            this.app.renderer.render(this.app.scene, this.app.camera);
+        }
+        
         this.app.controls.enabled = true;
         this.hideContextMenu();
         
         document.getElementById('command-output').textContent = '';
     }
-    
-    updatePolyline() {
-        // Mettre à jour la polyligne temporaire
-    }
-    
-    handleKeyboard(event) {
-        // Gestion des raccourcis pour les outils parallèles
-        if (this.app.currentTool === 'parallel' && this.parallelTool) {
-            if (event.key === '+' || event.key === '=') {
-                event.preventDefault();
-                this.parallelTool.adjustOffset(1);
-                document.getElementById('command-output').textContent = 
-                    `Distance: ${this.parallelTool.offset.toFixed(1)}cm (+ pour augmenter, - pour diminuer)`;
-            } else if (event.key === '-' || event.key === '_') {
-                event.preventDefault();
-                this.parallelTool.adjustOffset(-1);
-                document.getElementById('command-output').textContent = 
-                    `Distance: ${this.parallelTool.offset.toFixed(1)}cm (+ pour augmenter, - pour diminuer)`;
-            } else if (event.key === 'Escape') {
-                this.parallelTool.cancel();
-            }
-        }
+
+    clearTemporaryPolylineSegments() {
+        const segmentsToRemove = [];
         
-        // Gestion de l'outil trim
-        if (this.app.currentTool === 'trim' && this.trimTool) {
-            if (event.key === 'Escape') {
-                this.trimTool.cancel();
+        this.app.scene.traverse((object) => {
+            if (object instanceof THREE.Line && 
+                (object.renderOrder === 999 || object.renderOrder === 998)) {
+                segmentsToRemove.push(object);
             }
-        }
-        
-        // Gestion de l'outil extend
-        if (this.app.currentTool === 'extend' && this.extendTool) {
-            if (event.key === 'Enter' && !this.extendTool.boundaryLine && !this.extendTool.skipBoundary) {
-                this.extendTool.skipBoundarySelection();
-            } else if (event.key === 'Escape') {
-                this.extendTool.cancel();
-            }
-        }
-        
-        if (event.key === 'Shift') {
-            this.shiftPressed = true;
-            if (this.isDrawing && this.drawingMode === 'line') {
-                document.getElementById('command-output').textContent = 'Accrochage angulaire désactivé temporairement';
-            }
-        } else if (event.key === 'Enter' && this.isDrawing) {
-            if (this.drawingMode === 'polyline') {
-                this.finishPolyline();
-            }
-        } else if (event.key === 'Backspace' && this.isDrawing && this.drawingMode === 'polyline') {
-            // Touche Backspace pour annuler le dernier point
-            event.preventDefault();
-            this.undoLastPoint();
-        }
-        
-        document.addEventListener('keyup', (e) => {
-            if (e.key === 'Shift') {
-                this.shiftPressed = false;
-                if (this.isDrawing && this.drawingMode === 'line') {
-                    document.getElementById('command-output').textContent = 'Cliquez pour le second point de la ligne (Shift pour désactiver l\'accrochage)';
-                }
-            }
-        });
-    }
-    
-    togglePolylineArcMode() {
-        this.polylineArcMode = !this.polylineArcMode;
-        const cmdOutput = document.getElementById('command-output');
-        if (this.polylineArcMode) {
-            cmdOutput.textContent = 'Mode ARC activé - Cliquez pour le point de départ de l\'arc';
-            this.polylineArcPoints = []; // Points temporaires pour l'arc
-        } else {
-            cmdOutput.textContent = 'Mode LIGNE activé - Cliquez pour le point suivant';
-            this.polylineArcPoints = [];
-        }
-    }
-    
-    createArcGeometry(startPoint, middlePoint, endPoint) {
-        try {
-            // Calculer le centre et le rayon de l'arc passant par 3 points
-            const center = this.calculateCircleCenter(startPoint, middlePoint, endPoint);
-            if (!center) return null;
-            
-            const radius = center.distanceTo(startPoint);
-            
-            // Calculer les angles de début et de fin
-            const startAngle = Math.atan2(startPoint.y - center.y, startPoint.x - center.x);
-            const endAngle = Math.atan2(endPoint.y - center.y, endPoint.x - center.x);
-            
-            // Créer les points de l'arc
-            const points = [];
-            const segments = 32;
-            let angle = startAngle;
-            let angleDiff = endAngle - startAngle;
-            
-            // Normaliser la différence d'angle
-            if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-            if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-            
-            // Vérifier le sens de rotation basé sur le point du milieu
-            const midAngle = Math.atan2(middlePoint.y - center.y, middlePoint.x - center.x);
-            let midAngleDiff = midAngle - startAngle;
-            if (midAngleDiff > Math.PI) midAngleDiff -= 2 * Math.PI;
-            if (midAngleDiff < -Math.PI) midAngleDiff += 2 * Math.PI;
-            
-            if ((angleDiff > 0 && midAngleDiff < 0) || (angleDiff < 0 && midAngleDiff > 0)) {
-                angleDiff = angleDiff > 0 ? angleDiff - 2 * Math.PI : angleDiff + 2 * Math.PI;
-            }
-            
-            for (let i = 0; i <= segments; i++) {
-                const t = i / segments;
-                const currentAngle = startAngle + angleDiff * t;
-                const x = center.x + radius * Math.cos(currentAngle);
-                const y = center.y + radius * Math.sin(currentAngle);
-                points.push(new THREE.Vector3(x, y, startPoint.z));
-            }
-            
-            return new THREE.BufferGeometry().setFromPoints(points);
-        } catch (error) {
-            console.warn('Erreur lors de la création de l\'arc:', error);
-            return null;
-        }
-    }
-    
-    calculateCircleCenter(p1, p2, p3) {
-        // Calculer le centre du cercle passant par 3 points
-        const ax = p1.x, ay = p1.y;
-        const bx = p2.x, by = p2.y;
-        const cx = p3.x, cy = p3.y;
-        
-        const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-        if (Math.abs(d) < 0.0001) return null; // Points colinéaires
-        
-        const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
-        const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
-        
-        return new THREE.Vector3(ux, uy, p1.z);
-    }
-    
-    finishArc() {
-        if (this.drawingPoints.length >= 3) {
-            const arcGeometry = this.createArcGeometry(this.drawingPoints[0], this.drawingPoints[1], this.drawingPoints[2]);
-            if (arcGeometry) {
-                const material = new THREE.LineBasicMaterial({ 
-                    color: 0x000000,
-                    linewidth: 2,
-                    opacity: 1,
-                    transparent: false,
-                    depthTest: true,
-                    depthWrite: true
-                });
-                const arc = new THREE.Line(arcGeometry, material);
-                arc.renderOrder = 10;
-                arc.updateMatrix();
-                arc.matrixAutoUpdate = true;
-                
-                this.app.scene.add(arc);
-                this.app.objects.push(arc);
-                this.app.layers[this.app.currentLayer].objects.push(arc);
-                this.app.addToHistory('create', arc);
-                this.app.uiManager.updateHistoryPanel();
-            }
-        }
-        
-        this.endDrawing();
-    }
-    
-    checkForClosedShapeAndCreateSurface(newLine) {
-        const tolerance = 0.1; // Tolérance pour considérer deux points comme identiques
-        
-        // Si c'est une polyligne fermée (premier et dernier point identiques)
-        if (newLine.geometry.attributes.position.count >= 4) {
-            const positions = newLine.geometry.attributes.position;
-            const firstPoint = new THREE.Vector3(
-                positions.getX(0),
-                positions.getY(0),
-                positions.getZ(0)
-            );
-            const lastPoint = new THREE.Vector3(
-                positions.getX(positions.count - 1),
-                positions.getY(positions.count - 1),
-                positions.getZ(positions.count - 1)
-            );
-            
-            if (firstPoint.distanceTo(lastPoint) < tolerance) {
-                // C'est une forme fermée, créer une surface
-                const points = [];
-                for (let i = 0; i < positions.count - 1; i++) { // Exclure le dernier point dupliqué
-                    points.push(new THREE.Vector3(
-                        positions.getX(i),
-                        positions.getY(i),
-                        positions.getZ(i)
-                    ));
-                }
-                this.createSurfaceFromPoints(points);
-                return;
-            }
-        }
-        
-        // Sinon, vérifier les lignes connectées
-        const connectedLines = this.findConnectedLines(newLine, tolerance);
-        if (connectedLines.length >= 3) {
-            const closedPath = this.buildClosedPath(connectedLines, tolerance);
-            if (closedPath && closedPath.length >= 3) {
-                this.createSurfaceFromPoints(closedPath);
-            }
-        }
-    }
-    
-    /**
-     * Trouve les lignes connectées à une ligne donnée
-     */
-    findConnectedLines(targetLine, tolerance = 0.1) {
-        const connectedLines = [];
-        
-        if (!targetLine.geometry || !targetLine.geometry.attributes.position) {
-            return connectedLines;
-        }
-        
-        const targetPositions = targetLine.geometry.attributes.position;
-        const targetStart = new THREE.Vector3(
-            targetPositions.getX(0),
-            targetPositions.getY(0),
-            targetPositions.getZ(0)
-        );
-        const targetEnd = new THREE.Vector3(
-            targetPositions.getX(targetPositions.count - 1),
-            targetPositions.getY(targetPositions.count - 1),
-            targetPositions.getZ(targetPositions.count - 1)
-        );
-        
-        // Parcourir tous les objets pour trouver les lignes connectées
-        this.app.objects.forEach(obj => {
-            if (obj === targetLine || !(obj instanceof THREE.Line)) {
-                return;
-            }
-            
-            if (!obj.geometry || !obj.geometry.attributes.position) {
-                return;
-            }
-            
-            const positions = obj.geometry.attributes.position;
-            const objStart = new THREE.Vector3(
-                positions.getX(0),
-                positions.getY(0),
-                positions.getZ(0)
-            );
-            const objEnd = new THREE.Vector3(
-                positions.getX(positions.count - 1),
-                positions.getY(positions.count - 1),
-                positions.getZ(positions.count - 1)
-            );
-            
-            // Vérifier les connexions possibles
-            let isConnected = false;
-            let connectionInfo = {};
-            
-            if (targetStart.distanceTo(objStart) < tolerance) {
-                isConnected = true;
-                connectionInfo = { type: 'start-start', point: targetStart.clone() };
-            } else if (targetStart.distanceTo(objEnd) < tolerance) {
-                isConnected = true;
-                connectionInfo = { type: 'start-end', point: targetStart.clone() };
-            } else if (targetEnd.distanceTo(objStart) < tolerance) {
-                isConnected = true;
-                connectionInfo = { type: 'end-start', point: targetEnd.clone() };
-            } else if (targetEnd.distanceTo(objEnd) < tolerance) {
-                isConnected = true;
-                connectionInfo = { type: 'end-end', point: targetEnd.clone() };
-            }
-            
-            if (isConnected) {
-                connectedLines.push({
-                    line: obj,
-                    connection: connectionInfo
-                });
+            else if (object instanceof THREE.LineSegments && 
+                     object.renderOrder === 998) {
+                segmentsToRemove.push(object);
             }
         });
         
-        return connectedLines;
-    }
-    
-    /**
-     * Construit un chemin fermé à partir de lignes connectées
-     */
-    buildClosedPath(connectedLines, tolerance = 0.1) {
-        if (connectedLines.length < 2) {
-            return null;
-        }
+        segmentsToRemove.forEach(segment => {
+            this.app.scene.remove(segment);
+            if (segment.geometry) segment.geometry.dispose();
+            if (segment.material) segment.material.dispose();
+        });
         
-        const path = [];
-        const usedLines = new Set();
-        
-        // Commencer avec la première ligne
-        const firstLineInfo = connectedLines[0];
-        const firstLine = firstLineInfo.line;
-        usedLines.add(firstLine);
-        
-        // Extraire les points de la première ligne
-        const firstPositions = firstLine.geometry.attributes.position;
-        for (let i = 0; i < firstPositions.count; i++) {
-            path.push(new THREE.Vector3(
-                firstPositions.getX(i),
-                firstPositions.getY(i),
-                firstPositions.getZ(i)
-            ));
-        }
-        
-        let currentEndPoint = path[path.length - 1];
-        let foundConnection = true;
-        
-        // Essayer de connecter d'autres lignes
-        while (foundConnection && usedLines.size < connectedLines.length) {
-            foundConnection = false;
-            
-            for (const lineInfo of connectedLines) {
-                if (usedLines.has(lineInfo.line)) {
-                    continue;
-                }
-                
-                const line = lineInfo.line;
-                const positions = line.geometry.attributes.position;
-                
-                const lineStart = new THREE.Vector3(
-                    positions.getX(0),
-                    positions.getY(0),
-                    positions.getZ(0)
-                );
-                const lineEnd = new THREE.Vector3(
-                    positions.getX(positions.count - 1),
-                    positions.getY(positions.count - 1),
-                    positions.getZ(positions.count - 1)
-                );
-                
-                // Vérifier si cette ligne se connecte au point actuel
-                if (currentEndPoint.distanceTo(lineStart) < tolerance) {
-                    // Ajouter les points de cette ligne (en excluant le premier qui est déjà dans le chemin)
-                    for (let i = 1; i < positions.count; i++) {
-                        path.push(new THREE.Vector3(
-                            positions.getX(i),
-                            positions.getY(i),
-                            positions.getZ(i)
-                        ));
-                    }
-                    currentEndPoint = lineEnd;
-                    usedLines.add(line);
-                    foundConnection = true;
-                    break;
-                } else if (currentEndPoint.distanceTo(lineEnd) < tolerance) {
-                    // Ajouter les points de cette ligne en ordre inverse
-                    for (let i = positions.count - 2; i >= 0; i--) {
-                        path.push(new THREE.Vector3(
-                            positions.getX(i),
-                            positions.getY(i),
-                            positions.getZ(i)
-                        ));
-                    }
-                    currentEndPoint = lineStart;
-                    usedLines.add(line);
-                    foundConnection = true;
-                    break;
-                }
-            }
-        }
-        
-        // Vérifier si le chemin est fermé
-        if (path.length >= 3) {
-            const firstPoint = path[0];
-            const lastPoint = path[path.length - 1];
-            
-            if (firstPoint.distanceTo(lastPoint) < tolerance) {
-                return path.slice(0, -1); // Retirer le dernier point dupliqué
-            }
-        }
-        
-        return null; // Pas de chemin fermé trouvé
-    }
-    
-    /**
-     * Propose de fermer une forme qui est presque fermée
-     */
-    showCloseShapeDialog(line, firstPoint, lastPoint) {
-        const distance = firstPoint.distanceTo(lastPoint);
-        
-        // Créer une notification avec proposition de fermer
-        if (!document.getElementById('close-shape-notification')) {
-            const notification = document.createElement('div');
-            notification.id = 'close-shape-notification';
-            notification.style.cssText = `
-                position: fixed;
-                bottom: 100px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: #2196F3;
-                color: white;
-                padding: 12px 20px;
-                border-radius: 4px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                z-index: 1000;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                max-width: 400px;
-            `;
-            notification.innerHTML = `
-                <i class="fas fa-info-circle"></i>
-                <span>Forme presque fermée (écart: ${distance.toFixed(1)}cm)</span>
-                <button id="close-shape-btn" style="
-                    background: white;
-                    color: #2196F3;
-                    border: none;
-                    padding: 5px 10px;
-                    border-radius: 3px;
-                    cursor: pointer;
-                    font-weight: bold;
-                ">Fermer et créer surface</button>
-                <button id="dismiss-close-btn" style="
-                    background: transparent;
-                    color: white;
-                    border: 1px solid white;
-                    padding: 5px 10px;
-                    border-radius: 3px;
-                    cursor: pointer;
-                ">Ignorer</button>
-            `;
-            document.body.appendChild(notification);
-            
-            // Gestionnaire pour fermer et créer la surface
-            document.getElementById('close-shape-btn').addEventListener('click', () => {
-                this.forceCloseShapeAndCreateSurface(line);
-                notification.remove();
-            });
-            
-            // Gestionnaire pour ignorer
-            document.getElementById('dismiss-close-btn').addEventListener('click', () => {
-                notification.remove();
-            });
-            
-            // Auto-masquer après 15 secondes
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.remove();
-                }
-            }, 15000);
+        if (segmentsToRemove.length > 0) {
+            console.log(`Nettoyé ${segmentsToRemove.length} segments temporaires`);
         }
     }
-    
-    /**
-     * Force la fermeture d'une forme et crée une surface
-     */
-    forceCloseShapeAndCreateSurface(line) {
-        if (!line.geometry || !line.geometry.attributes.position) {
+
+    showLengthInputDialog() {
+        if (!this.isDrawing || this.drawingMode !== 'polyline' || this.drawingPoints.length === 0) {
+            console.warn('showLengthInputDialog: Invalid state for entering length.');
             return;
         }
-        
-        const positions = line.geometry.attributes.position;
-        const points = [];
-        
-        // Extraire tous les points
-        for (let i = 0; i < positions.count; i++) {
-            points.push(new THREE.Vector3(
-                positions.getX(i),
-                positions.getY(i),
-                positions.getZ(i)
-            ));
-        }
-        
-        // Fermer en ajoutant le premier point à la fin s'il n'y est pas déjà
-        if (points.length >= 3) {
-            const firstPoint = points[0];
-            const lastPoint = points[points.length - 1];
-            
-            if (firstPoint.distanceTo(lastPoint) > 0.1) {
-                points.push(firstPoint.clone());
-            }
-            
-            // Créer la surface
-            this.createSurfaceFromPoints(points);
-            
-            // Mettre à jour la ligne originale pour qu'elle soit fermée
-            const newGeometry = new THREE.BufferGeometry().setFromPoints(points);
-            line.geometry.dispose();
-            line.geometry = newGeometry;
-        }
-    }
-    
-    createSurfaceFromPoints(points) {
-        if (points.length < 3) {
-            console.warn('Pas assez de points pour créer une surface');
-            return null;
-        }
-        
-        try {
-            console.log(`Création d'une surface avec ${points.length} points`);
-            
-            // Vérifier que tous les points sont approximativement sur le même plan Z
-            const avgZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
-            const isFlat = points.every(p => Math.abs(p.z - avgZ) < 0.1);
-            
-            if (!isFlat) {
-                console.warn('Les points ne forment pas une surface plane');
-                return null;
-            }
-            
-            // Créer une forme 2D à partir du chemin
-            const shape = new THREE.Shape();
-            
-            // Déplacer au premier point
-            shape.moveTo(points[0].x, points[0].y);
-            
-            // Tracer les lignes vers les autres points
-            for (let i = 1; i < points.length; i++) {
-                shape.lineTo(points[i].x, points[i].y);
-            }
-            
-            // Fermer la forme
-            shape.closePath();
-            
-            // Créer la géométrie de la surface
-            const geometry = new THREE.ShapeGeometry(shape);
-            // Utiliser MeshPhongMaterial pour supporter les ombres
-            const material = new THREE.MeshPhongMaterial({ 
-                color: 0xcccccc,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.8,
-                depthTest: true,
-                depthWrite: true
+
+        const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
+        const defaultAngleDegrees = "90.0";
+
+        const popup = document.createElement('div');
+        popup.id = 'length-input-popup';
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #2c2c2c;
+            color: white;
+            border: 2px solid #0078d4;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 99999;
+            min-width: 320px;
+            font-family: Arial, sans-serif;
+        `;
+
+        const anglePresetButtonsHtml = [0, 45, 90, 135, 180, 225, 270, 315].map(angle => 
+            `<button class="angle-preset-btn" data-angle="${angle}" style="
+                background: #555; color: white; border: 1px solid #777; padding: 5px 10px;
+                border-radius: 4px; cursor: pointer; font-size: 11px; margin: 2px;
+            ">${angle}°</button>`
+        ).join('');
+
+        popup.innerHTML = `
+            <div style="margin-bottom: 15px; font-weight: bold; font-size: 16px;">
+                <i class="fas fa-ruler-combined"></i> Saisir Longueur et Angle
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px;">Longueur (cm):</label>
+                <input type="number" id="length-input" value="100" min="0.1" step="0.1"
+                       style="width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px;
+                              background: #444; color: white; font-size: 14px; box-sizing: border-box;">
+            </div>
+            <div style="margin-bottom: 5px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px;">Angle (degrés, 0° vers la Droite):</label>
+                <input type="number" id="angle-input" value="${defaultAngleDegrees}" step="0.1"
+                       style="width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px;
+                              background: #444; color: white; font-size: 14px; box-sizing: border-box;">
+            </div>
+            <div id="angle-preset-buttons" style="margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;">
+                ${anglePresetButtonsHtml}
+            </div>
+            <div style="text-align: right;">
+                <button id="length-ok-btn" style="
+                    background: #0078d4; color: white; border: none; padding: 8px 16px;
+                    border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 8px;
+                ">OK</button>
+                <button id="length-cancel-btn" style="
+                    background: #666; color: white; border: none; padding: 8px 16px;
+                    border-radius: 4px; cursor: pointer; font-size: 12px;
+                ">Annuler</button>
+            </div>
+        `;
+
+        document.body.appendChild(popup);
+
+        const lengthInput = document.getElementById('length-input');
+        const angleInput = document.getElementById('angle-input');
+        lengthInput.focus();
+        lengthInput.select();
+
+        document.querySelectorAll('.angle-preset-btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                angleInput.value = button.dataset.angle;
+                lengthInput.focus();
+                lengthInput.select();
             });
+        });
+
+        const handleOK = () => {
+            const length = parseFloat(lengthInput.value);
+            let angleDegreesInput = parseFloat(angleInput.value);
             
-            const surface = new THREE.Mesh(geometry, material);
-            surface.position.set(0, 0, avgZ + 0.01);
-            surface.renderOrder = 5;
-            surface.castShadow = true;
-            surface.receiveShadow = true;
-            
-            // Ajouter des contours noirs pour la surface
-            const edges = new THREE.EdgesGeometry(geometry);
-            const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ 
-                color: 0x000000,
-                linewidth: 1,
-                opacity: 0.8,
-                transparent: true
-            }));
-            surface.add(edgeLines);
-            
-            surface.userData = {
-                type: 'surface',
-                createdFrom: 'closedShape',
-                pointCount: points.length,
-                originalPoints: points.map(p => p.clone()) // Sauvegarder les points originaux
-            };
-            
-            this.app.scene.add(surface);
-            this.app.objects.push(surface);
-            this.app.layers[this.app.currentLayer].objects.push(surface);
-            
-            // Ajouter à l'historique après création
-            this.app.addToHistory('create', surface);
-            
-            if (this.app.uiManager) {
-                this.app.uiManager.updateHistoryPanel();
+            let finalAngleRadians;
+
+            if (isNaN(angleDegreesInput)) {
+                finalAngleRadians = this.rightClickAngle;
+                if (typeof finalAngleRadians !== 'number' || isNaN(finalAngleRadians)) {
+                    finalAngleRadians = 0;
+                }
+            } else {
+                finalAngleRadians = angleDegreesInput * Math.PI / 180;
             }
             
-            console.log('✓ Surface créée avec succès');
-            document.getElementById('command-output').textContent = `Surface créée à partir de ${points.length} points (peut être extrudée)`;
-            
-            return surface;
-        } catch (error) {
-            console.error('Erreur lors de la création de surface:', error);
-            document.getElementById('command-output').textContent = 'Impossible de créer une surface à partir de ces points';
-            return null;
-        }
+            finalAngleRadians = (finalAngleRadians % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+
+            if (length && length > 0) {
+                if (this.tempObject) {
+                    this.app.scene.remove(this.tempObject);
+                    if (this.tempObject.geometry) this.tempObject.geometry.dispose();
+                    if (this.tempObject.material) this.tempObject.material.dispose();
+                    this.tempObject = null;
+                }
+                this.clearSnapHelpers();
+
+                const newPoint = new THREE.Vector3(
+                    lastPoint.x + Math.cos(finalAngleRadians) * length,
+                    lastPoint.y + Math.sin(finalAngleRadians) * length,
+                    0
+                );
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints([lastPoint, newPoint]);
+                const material = new THREE.LineBasicMaterial({
+                    color: 0x000000,
+                    linewidth: 3,
+                    transparent: false
+                });
+                const lineSegment = new THREE.Line(geometry, material);
+                lineSegment.renderOrder = 10;
+                this.app.scene.add(lineSegment);
+                this.temporaryPolylineSegments.push(lineSegment);
+                
+                this.drawingPoints.push(newPoint);
+                
+                const totalDistance = this.calculatePolylineDistance(this.drawingPoints);
+                document.getElementById('command-output').textContent = 
+                    `Distance totale: ${totalDistance.toFixed(2)} cm - Cliquez pour le point suivant (clic droit pour options)`;
+                
+                popup.remove();
+            } else {
+                alert('Veuillez saisir une longueur valide supérieure à 0.');
+                lengthInput.focus();
+                lengthInput.select();
+            }
+        };
+
+        const handleCancel = () => {
+            popup.remove();
+        };
+
+        document.getElementById('length-ok-btn').addEventListener('click', handleOK);
+        document.getElementById('length-cancel-btn').addEventListener('click', handleCancel);
+
+        lengthInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOK();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancel();
+            }
+        });
+
+        angleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOK();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancel();
+            }
+        });
     }
-    
-    calculateArcMiddlePoint(startPoint, endPoint, mousePoint) {
-        // Calculer le point milieu de l'arc basé sur la position de la souris
-        // Cela détermine la courbure de l'arc
-        
-        // Vecteur du segment start-end
-        const chord = new THREE.Vector3().subVectors(endPoint, startPoint);
-        const chordLength = chord.length();
-        const chordMidpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
-        
-        // Vecteur perpendiculaire au segment
-        const perpendicular = new THREE.Vector3(-chord.y, chord.x, 0).normalize();
-        
-        // Projeter la position de la souris sur la ligne perpendiculaire passant par le milieu
-        const mouseVector = new THREE.Vector3().subVectors(mousePoint, chordMidpoint);
-        const projectionLength = mouseVector.dot(perpendicular);
-        
-        // Limiter la courbure pour éviter les arcs trop extrêmes
-        const maxBulge = chordLength * 2; // Limite à 200% de la longueur de la corde
-        const clampedProjection = Math.max(-maxBulge, Math.min(maxBulge, projectionLength));
-        
-        // Calculer le point milieu de l'arc
-        const middlePoint = new THREE.Vector3()
-            .copy(chordMidpoint)
-            .add(perpendicular.multiplyScalar(clampedProjection));
-        
-        return middlePoint;
+
+    addPolylinePoint(point) {
+        if (!this.isDrawing || this.drawingMode !== 'polyline') {
+            console.warn('addPolylinePoint: Invalid state for adding a point.');
+            return;
+        }
+
+        const lastPoint = this.drawingPoints[this.drawingPoints.length - 1];
+        this.drawingPoints.push(point);
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([lastPoint, point]);
+        const material = new THREE.LineBasicMaterial({
+            color: 0x000000,
+            linewidth: 3,
+            transparent: false
+        });
+        const lineSegment = new THREE.Line(geometry, material);
+        lineSegment.renderOrder = 10;
+        this.app.scene.add(lineSegment);
+        this.temporaryPolylineSegments.push(lineSegment);
+
+        const totalDistance = this.calculatePolylineDistance(this.drawingPoints);
+        document.getElementById('command-output').textContent = 
+            `Distance totale: ${totalDistance.toFixed(2)} cm - Cliquez pour le point suivant (clic droit pour options)`;
     }
 }

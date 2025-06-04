@@ -3,38 +3,100 @@ import * as THREE from 'three';
 export class UIManager {
     constructor(app) {
         this.app = app;
-        this.setupUI();
-    }
-    
-    async setupUI() {
         console.log('Configuration de l\'interface utilisateur...');
         
-        // Initialiser l'indicateur Nord
-        try {
-            const { NorthIndicator } = await import('../WebCAD.js');
-            this.app.northIndicator = new NorthIndicator(this.app);
-            console.log('Indicateur Nord initialisé');
-        } catch (error) {
-            console.error('Erreur lors du chargement de l\'indicateur Nord:', error);
-        }
-        
-        // Vérifier que les éléments existent avant d'ajouter les gestionnaires
-        this.setupMenuButtons();
-        this.setupDrawingTools();
-        this.setupToolbarButtons();
-        this.setupRightSidebar();
-        this.setupSunlightControls();
+        this.setupPanelToggles();
+        this.setupEventListeners();
         this.setupTextureLibrary();
-        this.setupDpad(); // Ajouter cette ligne pour initialiser le D-pad
-        this.updateLayersPanel();
-        
-        // Configuration de la bibliothèque d'éléments
+        this.setupSunlightControls(); // Changed from initializeSunlightControls to setupSunlightControls
         this.setupElementsLibrary();
-        
-        console.log('Interface utilisateur configurée');
     }
-    
-    setupMenuButtons() {
+
+    setupPanelToggles() {
+        // Configuration des panneaux dépliables/repliables
+        const toggleButtons = document.querySelectorAll('[data-toggle-panel]');
+        
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = button.getAttribute('data-toggle-panel');
+                const targetPanel = document.getElementById(targetId);
+                
+                if (targetPanel) {
+                    const isVisible = targetPanel.style.display !== 'none';
+                    targetPanel.style.display = isVisible ? 'none' : 'block';
+                    
+                    // Mettre à jour l'icône ou le texte du bouton
+                    const icon = button.querySelector('i');
+                    if (icon) {
+                        if (isVisible) {
+                            icon.className = icon.className.replace('fa-chevron-up', 'fa-chevron-down');
+                        } else {
+                            icon.className = icon.className.replace('fa-chevron-down', 'fa-chevron-up');
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    setupEventListeners() {
+        // Gestionnaires de fichiers existants
+        document.getElementById('new-project')?.addEventListener('click', () => {
+            this.app.fileManager.newProject();
+        });
+
+        document.getElementById('open-project')?.addEventListener('click', () => {
+            // TODO: Implémenter l'ouverture de projet
+            document.getElementById('command-output').textContent = 'Fonctionnalité d\'ouverture à implémenter';
+        });
+
+        // Nouveau gestionnaire pour l'import COLLADA
+        document.getElementById('import-collada')?.addEventListener('click', async () => {
+            try {
+                await this.app.fileManager.importColladaFile();
+            } catch (error) {
+                console.error('Erreur lors de l\'importation COLLADA:', error);
+                document.getElementById('command-output').textContent = 'Erreur lors de l\'importation du fichier COLLADA';
+            }
+        });
+
+        document.getElementById('save-project')?.addEventListener('click', () => {
+            this.app.fileManager.saveProject();
+        });
+
+        document.getElementById('export-project')?.addEventListener('click', () => {
+            this.app.fileManager.exportProject();
+        });
+
+        // Gestionnaires de la barre d'outils
+        document.getElementById('toolbar-new')?.addEventListener('click', () => {
+            this.app.fileManager.newProject();
+        });
+
+        document.getElementById('toolbar-open')?.addEventListener('click', () => {
+            // TODO: Implémenter l'ouverture de projet
+            document.getElementById('command-output').textContent = 'Fonctionnalité d\'ouverture à implémenter';
+        });
+
+        // Nouveau gestionnaire pour le bouton de la barre d'outils
+        document.getElementById('toolbar-import-collada')?.addEventListener('click', async () => {
+            try {
+                await this.app.fileManager.importColladaFile();
+            } catch (error) {
+                console.error('Erreur lors de l\'importation COLLADA:', error);
+                document.getElementById('command-output').textContent = 'Erreur lors de l\'importation du fichier COLLADA';
+            }
+        });
+
+        document.getElementById('toolbar-save')?.addEventListener('click', () => {
+            this.app.fileManager.saveProject();
+        });
+
+        document.getElementById('toolbar-export')?.addEventListener('click', () => {
+            this.app.fileManager.exportProject();
+        });
+
         // Menu
         document.getElementById('new-project').addEventListener('click', () => this.app.fileManager.newProject());
         document.getElementById('save-project').addEventListener('click', () => this.app.fileManager.saveProject());
@@ -123,7 +185,6 @@ export class UIManager {
         // Configuration des outils de la sidebar
         document.getElementById('sidebar-select').addEventListener('click', () => this.handleToolSelect('select'));
         document.getElementById('sidebar-polyline').addEventListener('click', () => this.handleToolSelect('polyline'));
-        document.getElementById('sidebar-arc').addEventListener('click', () => this.handleToolSelect('arc'));
         document.getElementById('sidebar-rect').addEventListener('click', () => this.handleToolSelect('rect'));
         document.getElementById('sidebar-circle').addEventListener('click', () => this.handleToolSelect('circle'));
         document.getElementById('sidebar-parallel').addEventListener('click', () => this.handleToolSelect('parallel'));
@@ -140,6 +201,14 @@ export class UIManager {
         }
         
         document.getElementById('sidebar-extrude').addEventListener('click', () => this.handleToolSelect('extrude'));
+        
+        // Ajouter l'event listener pour le bouton dimension
+        const dimensionBtn = document.getElementById('sidebar-dimension');
+        if (dimensionBtn) {
+            dimensionBtn.addEventListener('click', () => this.handleToolSelect('dimension'));
+        } else {
+            console.warn('Bouton sidebar-dimension non trouvé dans le HTML');
+        }
         
         console.log('Outils de la sidebar configurés');
     }
@@ -227,57 +296,93 @@ export class UIManager {
     }
     
     setupSunlightControls() {
-        // Gestionnaires d'événements pour les contrôles du soleil
+        const azimuthSlider = document.getElementById('sun-azimuth');
+        const elevationSlider = document.getElementById('sun-elevation');
+        const azimuthValue = document.getElementById('azimuth-value');
+        const elevationValue = document.getElementById('elevation-value');
+        
+        // Contrôles pour mois et heure
         const sunMonthElement = document.getElementById('sun-month');
         const sunHourElement = document.getElementById('sun-hour');
         const hourDisplayElement = document.getElementById('hour-display');
         const showSunHelperElement = document.getElementById('show-sun-helper');
         const enableShadowsElement = document.getElementById('enable-shadows');
+        
+        if (azimuthSlider && elevationSlider) {
+            const updateSunlight = () => {
+                const azimuth = parseFloat(azimuthSlider.value);
+                const elevation = parseFloat(elevationSlider.value);
+                
+                if (azimuthValue) azimuthValue.textContent = azimuth.toFixed(1) + '°';
+                if (elevationValue) elevationValue.textContent = elevation.toFixed(1) + '°';
+                
+                // Vérifier que sunlightManager existe avant d'appeler updateSunPosition
+                if (this.app.sunlightManager && typeof this.app.sunlightManager.updateSunPosition === 'function') {
+                    this.app.sunlightManager.updateSunPosition(azimuth, elevation);
+                }
+            };
+            
+            azimuthSlider.addEventListener('input', updateSunlight);
+            elevationSlider.addEventListener('input', updateSunlight);
+            
+            // Attendre un peu avant d'appliquer les valeurs initiales
+            setTimeout(() => {
+                updateSunlight();
+            }, 200);
+        }
 
         if (sunMonthElement) {
             sunMonthElement.addEventListener('change', (e) => {
-                this.app.sunlightManager.month = parseInt(e.target.value);
-                this.app.sunlightManager.updateSunPosition();
+                if (this.app.sunlightManager) {
+                    this.app.sunlightManager.month = parseInt(e.target.value);
+                    this.app.sunlightManager.updateSunPosition();
+                }
             });
         }
         
         if (sunHourElement && hourDisplayElement) {
             sunHourElement.addEventListener('input', (e) => {
                 const hour = parseFloat(e.target.value);
-                this.app.sunlightManager.hour = hour;
-                const hours = Math.floor(hour);
-                const minutes = Math.round((hour - hours) * 60);
-                hourDisplayElement.textContent = 
-                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                this.app.sunlightManager.updateSunPosition();
+                if (this.app.sunlightManager) {
+                    this.app.sunlightManager.hour = hour;
+                    const hours = Math.floor(hour);
+                    const minutes = Math.round((hour - hours) * 60);
+                    hourDisplayElement.textContent = 
+                        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                    this.app.sunlightManager.updateSunPosition();
+                }
             });
         }
         
         if (showSunHelperElement) {
             showSunHelperElement.addEventListener('change', (e) => {
-                if (this.app.sunHelper) {
-                    this.app.sunHelper.visible = e.target.checked;
+                if (this.app.sunlightManager && this.app.sunlightManager.sunHelper) {
+                    this.app.sunlightManager.sunHelper.visible = e.target.checked;
                 }
             });
         }
         
+        // Activer/désactiver les ombres
         if (enableShadowsElement) {
             enableShadowsElement.addEventListener('change', (e) => {
-                if (this.app.renderer && this.app.renderer.shadowMap) {
-                    this.app.renderer.shadowMap.enabled = e.target.checked;
-                    // Forcer le rendu pour appliquer immédiatement le changement d'ombres
-                    this.app.renderer.render(this.app.scene, this.app.camera);
+                if (this.app.sunlightManager) {
+                    this.app.sunlightManager.enableShadows(e.target.checked);
+                    
+                    // Forcer un rendu après le changement
+                    if (this.app.renderer && this.app.scene && this.app.camera) {
+                        this.app.renderer.render(this.app.scene, this.app.camera);
+                    }
                 }
             });
+            
+            // S'assurer que les ombres sont activées au démarrage
+            if (enableShadowsElement.checked && this.app.sunlightManager) {
+                this.app.sunlightManager.enableShadows(true);
+            }
         }
         
         // Contrôles du Nord
         this.setupNorthControls();
-        
-        // Mettre à jour la position initiale du soleil
-        if (this.app.sunlightManager) {
-            this.app.sunlightManager.updateSunPosition();
-        }
     }
     
     createShadowControls() {
@@ -886,6 +991,135 @@ export class UIManager {
             addElementBtn.addEventListener('click', () => this.addSelectedElementToScene());
         }
         
+        // Ajout : méthode d'insertion directe depuis la barre latérale
+        // Correction : insérer exactement le même objet utilisé (nom ET catégorie)
+        this.insertElementByType = (elementNameOrType, elementCategoryInfo) => {
+            let found = null;
+            let baseElementName = elementNameOrType;
+            let searchCategoryName;
+            let specificInstanceDims = null; // Dimensions of the specific instance being re-inserted
+
+            let determinedCategory = null;
+
+            if (typeof elementCategoryInfo === 'object' && elementCategoryInfo !== null) {
+                searchCategoryName = elementCategoryInfo.category;
+                specificInstanceDims = elementCategoryInfo.dims; // These are the dims of the instance from the used list
+                determinedCategory = searchCategoryName;
+            } else {
+                searchCategoryName = elementCategoryInfo; // string or undefined
+            }
+
+            const nameLower = baseElementName.toLowerCase();
+
+            // Si une catégorie de recherche est fournie, chercher d'abord dans cette catégorie
+            if (searchCategoryName && this.elementsData[searchCategoryName]) {
+                found = (this.elementsData[searchCategoryName] || []).find(el =>
+                    el.name && el.name.toLowerCase() === nameLower
+                );
+            }
+
+            // Sinon, ou si non trouvé, recherche stricte par nom exact dans toutes les catégories
+            if (!found) {
+                for (const cat in this.elementsData) {
+                    // Skip if we already searched this category
+                    if (cat === searchCategoryName && determinedCategory) continue;
+
+                    found = (this.elementsData[cat] || []).find(el =>
+                        el.name && el.name.toLowerCase() === nameLower
+                    );
+                    if (found) {
+                        determinedCategory = cat;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback sur type (rarement utilisé)
+            if (!found) {
+                for (const cat in this.elementsData) {
+                    if (cat === searchCategoryName && determinedCategory && (this.elementsData[cat] || []).some(el => el.name && el.name.toLowerCase() === nameLower)) continue;
+                    found = (this.elementsData[cat] || []).find(el =>
+                        el.type && el.type === elementNameOrType // elementNameOrType might be a type
+                    );
+                    if (found) {
+                        determinedCategory = cat;
+                        break;
+                    }
+                }
+            }
+            // Fallback sur inclusion partielle du nom
+            if (!found) {
+                for (const cat in this.elementsData) {
+                     if (cat === searchCategoryName && determinedCategory && (this.elementsData[cat] || []).some(el => el.name && el.name.toLowerCase() === nameLower)) continue;
+                    found = (this.elementsData[cat] || []).find(el =>
+                        el.name && el.name.toLowerCase().includes(nameLower)
+                    );
+                    if (found) {
+                        determinedCategory = cat;
+                        break;
+                    }
+                }
+            }
+
+            // --- Différenciation si plusieurs éléments de base partagent le même nom ---
+            // This logic is for disambiguating items *within elementsData* if they share a name
+            // but have different base dimensions. For "Brique M50", this is not currently the case.
+            if (determinedCategory && found && specificInstanceDims) {
+                const candidates = (this.elementsData[determinedCategory] || []).filter(el =>
+                    el.name && el.name.toLowerCase() === nameLower
+                );
+                if (candidates.length > 1) {
+                    // Try to find a base element whose default dims match the instance's dims
+                    // This assumes specificInstanceDims might correspond to one of the base element's default dims
+                    const preciseMatch = candidates.find(el =>
+                        el.dims &&
+                        el.dims.x === specificInstanceDims.x &&
+                        el.dims.y === specificInstanceDims.y &&
+                        el.dims.z === specificInstanceDims.z
+                    );
+                    if (preciseMatch) {
+                        found = preciseMatch;
+                    }
+                    // If no precise match on base dims, 'found' remains the first one found.
+                }
+            }
+            // ----------------------------------------------------------------------
+
+            if (found) {
+                this.currentCategory = determinedCategory; // Set category based on where it was found
+                // Use a fresh copy of the base element for the modal
+                this.selectedElement = JSON.parse(JSON.stringify(found)); 
+                
+                // Note: If re-inserting an element with specific modifications (e.g., a 1/2 cut brick),
+                // this logic currently re-selects the *base* element. The user would need to
+                // re-apply modifications in the options modal. To pre-fill options,
+                // `showElementOptions` would need to accept `specificInstanceDims` and apply them.
+
+                this.showElementsModal();
+                setTimeout(() => {
+                    this.showElementOptions(this.selectedElement); // Show options for the base element
+                    
+                    const grid = document.getElementById('elements-grid');
+                    if (grid) {
+                        const items = grid.querySelectorAll('.element-item');
+                        items.forEach(item => {
+                            if (item.textContent.includes(this.selectedElement.name)) {
+                                item.classList.add('selected');
+                                item.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                            } else {
+                                item.classList.remove('selected');
+                            }
+                        });
+                    }
+                    // Insérer automatiquement l'élément
+                    const addBtn = document.getElementById('add-element-to-scene');
+                    if (addBtn) addBtn.click(); // This calls addSelectedElementToScene
+                }, 100);
+            } else {
+                alert(`Impossible de retrouver l'élément "${baseElementName}" dans la bibliothèque.`);
+            }
+        };
+    
         console.log('Bibliothèque d\'éléments configurée');
     }
     
@@ -1134,10 +1368,13 @@ export class UIManager {
     }
     
     addSelectedElementToScene() {
-        if (!this.selectedElement || !this.app) return;
-        
-        const element = JSON.parse(JSON.stringify(this.selectedElement)); // Deep copy
-        
+        if (!this.selectedElement) {
+            console.warn('Aucun élément sélectionné');
+            return;
+        }
+
+        // Create a mutable copy of the selected element to apply options
+        const element = JSON.parse(JSON.stringify(this.selectedElement));
         // Récupérer les valeurs des inputs
         const cutSelect = document.getElementById('element-cut');
         const customCutValue = document.getElementById('custom-cut-value');
@@ -1182,51 +1419,83 @@ export class UIManager {
         }
 
         // Créer l'objet 3D avec les dimensions L(x), l(y), H(z)
-        // BoxGeometry takes width, height, depth.
-        // Our convention: L=dims.x (width for BoxGeometry), H=dims.z (depth for BoxGeometry), l=dims.y (height for BoxGeometry)
-        // Three.js BoxGeometry(width, height, depth) -> (X, Y, Z)
-        // We want: X = L (element.dims.x), Y = l (element.dims.y), Z = H (element.dims.z)
-        // So, BoxGeometry(element.dims.x, element.dims.y, element.dims.z)
         const geometry = new THREE.BoxGeometry(element.dims.x, element.dims.y, element.dims.z);
         const material = new THREE.MeshPhongMaterial({ 
             color: element.color,
             side: THREE.DoubleSide 
         });
         const mesh = new THREE.Mesh(geometry, material);
-        
+
         // Positionner au centre de la vue, avec la base sur le plan Z=0
-        mesh.position.set(0, 0, element.dims.z / 2); // Position Z is half of H
-        
+        mesh.position.set(0, 0, element.dims.z / 2);
+
         // Propriétés d'ombre
         mesh.castShadow = true;
         mesh.receiveShadow = true;
-        
+
+        // --- Suivi des éléments utilisés ---
+        mesh.userData.isConstructionElement = true;
+        mesh.userData.elementType = this.currentCategory || 'other'; // Store category for organization
+        mesh.userData.elementName = this.selectedElement.name; // Store specific name like "Brique M50"
+        mesh.userData.elementCategory = this.currentCategory; // Store category
+        mesh.userData.elementDims = element.dims; // Store final dimensions
+        mesh.userData.elementId = this.generateUUID();
+
         // Ajouter à la scène
         this.app.scene.add(mesh);
         this.app.objects.push(mesh);
-        
+
         // Ajouter au calque actuel
         if (this.app.layers && this.app.currentLayer !== undefined) {
             this.app.layers[this.app.currentLayer].objects.push(mesh);
         }
-        
+
         // Ajouter à l'historique
         if (this.app.addToHistory) {
             this.app.addToHistory('create', mesh);
         }
+
+        // --- Mise à jour immédiate de la liste des éléments utilisés ---
+        if (typeof window.trackedConstructionElements === 'undefined') {
+            window.trackedConstructionElements = [];
+        }
         
+        const elementEntry = {
+            name: mesh.userData.elementName, // SPECIFIC name like "Brique M50"
+            type: mesh.userData.elementType,
+            category: mesh.userData.elementCategory,
+            id: mesh.userData.elementId,
+            dims: mesh.userData.elementDims,
+            mesh: mesh // Reference to the mesh for potential future operations
+        };
+        
+        window.trackedConstructionElements.push(elementEntry);
+        
+        if (typeof window.updateUsedElementsDisplay === 'function') {
+            window.updateUsedElementsDisplay();
+        }
+
         // Fermer la modal
         this.hideElementsModal();
-        
+
         // Message de confirmation
         const output = document.getElementById('command-output');
         if (output) {
-            output.textContent = `${element.name} ajouté à la scène`;
+            output.textContent = `${mesh.userData.elementName} (dims: ${element.dims.x.toFixed(1)}x${element.dims.z.toFixed(1)}x${element.dims.y.toFixed(1)}) ajouté à la scène`;
         }
-        
-        console.log(`Élément ${element.name} ajouté à la scène`);
+
+        console.log(`Élément ${mesh.userData.elementName} ajouté à la scène`);
     }
-    
+
+    // Ajouter la méthode generateUUID manquante
+    generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
     setupNorthControls() {
         console.log('Configuration des contrôles du Nord...');
         
@@ -1298,7 +1567,7 @@ export class UIManager {
         // Gestionnaire pour l'affichage de l'indicateur
         if (showNorthIndicator) {
             showNorthIndicator.addEventListener('change', (e) => {
-                if (this.app.northIndicator) {
+                               if (this.app.northIndicator) {
                     this.app.northIndicator.setVisible(e.target.checked);
                 }
             });
@@ -1464,7 +1733,7 @@ export class UIManager {
             if (object.geometry instanceof THREE.BoxGeometry) return 'Boîte';
             if (object.geometry instanceof THREE.ExtrudeGeometry) return 'Forme extrudée';
             if (object.geometry instanceof THREE.CylinderGeometry) return 'Cylindre';
-            if (object.geometry instanceof THREE.SphereGeometry) return 'Sphère';
+            if ( object.geometry instanceof THREE.SphereGeometry) return 'Sphère';
         }
         return 'Objet 3D';
     }
@@ -1495,9 +1764,11 @@ export class UIManager {
             }
         });
 
+       
+
         // Style de ligne
         const lineTypeSelect = document.getElementById('prop-line-type');
-        if (lineTypeSelect) {
+        if ( lineTypeSelect) {
             lineTypeSelect.addEventListener('change', () => {
                 this.updateLineStyle(object, lineTypeSelect.value);
                 // Afficher/masquer l'échelle des tirets

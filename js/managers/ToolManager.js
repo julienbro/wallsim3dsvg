@@ -70,8 +70,13 @@ export class ToolManager {
         const sidebarBtn = document.getElementById(`sidebar-${tool}`);
         if (sidebarBtn) sidebarBtn.classList.add('active');
         
-        // Activate the tool via DrawingManager's startDrawing, which now routes to specific tool.activate()
-        this.app.drawingManager.startDrawing(tool); 
+        // Si on sélectionne un outil de dessin, démarrer le mode correspondant
+        if (['line', 'rect', 'circle', 'polyline', 'arc', 'parallel', 'trim', 'extend', 'hatch', 'surface', 'dimension'].includes(tool)) {
+            this.app.drawingManager.startDrawing(tool);
+        } else if (tool === 'select') {
+            // Le tool 'select' pourrait ne pas nécessiter d'activation immédiate
+            // this.app.drawingManager.startDrawing(tool);
+        }
         
         // Command output is now mostly handled by individual tool's activate() method.
         // We can set a generic message or remove some of these.
@@ -93,5 +98,13 @@ export class ToolManager {
         this.app.transformControls.setMode(mode);
         document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`${mode === 'translate' ? 'move' : mode}-tool`).classList.add('active');
+    }
+    
+    updateActiveTool(toolName) {
+        this.setTool(toolName);
+        // Update UI if needed
+        if (this.webCad.uiManager) {
+            this.webCad.uiManager.updateToolUI(toolName);
+        }
     }
 }

@@ -110,16 +110,23 @@ export class NorthIndicator {
     }
     
     setOrientation(angle) {
-        this.northAngle = angle;
+        this.setAngle(angle);
+    }
+    
+    setAngle(degrees) {
         if (this.indicator) {
-            // Convertir l'angle en radians et appliquer la rotation
-            const radians = (angle * Math.PI) / 180;
-            this.indicator.rotation.z = -radians;
-        }
-        
-        // Mettre à jour la position du soleil si nécessaire
-        if (this.app.sunlightManager) {
-            this.app.sunlightManager.updateSunPosition();
+            this.currentAngle = degrees;
+            // Convertir les degrés en radians et appliquer la rotation
+            // Rotation autour de l'axe Z (vertical)
+            this.indicator.rotation.z = -degrees * Math.PI / 180;
+            console.log(`Indicateur Nord orienté à ${degrees}°`);
+            // Mettre à jour l'angle du Nord dans le SunlightManager
+            if (this.app.sunlightManager) {
+                this.app.sunlightManager.northAngle = degrees;
+                if (typeof this.app.sunlightManager.updateSunPosition === 'function') {
+                    this.app.sunlightManager.updateSunPosition();
+                }
+            }
         }
     }
     
@@ -250,7 +257,134 @@ export function addRectangleDeleteMethods(webCADInstance) {
 export class UIManager {
     constructor(app) {
         this.app = app;
-        this.createToolbar();
+        this.constructionElements = {
+            briques: {
+                name: 'Briques',
+                icon: '🧱',
+                elements: {
+                    'brique_20_10_5': {
+                        name: 'Brique 20x10x5',
+                        file: 'https://wall3dsim.com/biblio/brique_20_10_5.dae',
+                        dimensions: { x: 20, y: 10, z: 5 },
+                        description: 'Brique standard 20x10x5 cm',
+                        material: 'Argile',
+                        weight: '10 kg/m²',
+                        category: 'murs'
+                    },
+                    'brique_30_15_10': {
+                        name: 'Brique 30x15x10',
+                        file: 'https://wall3dsim.com/biblio/brique_30_15_10.dae',
+                        dimensions: { x: 30, y: 15, z: 10 },
+                        description: 'Brique standard 30x15x10 cm',
+                        material: 'Argile',
+                        weight: '15 kg/m²',
+                        category: 'murs'
+                    }
+                }
+            },
+            blocs: {
+                name: 'Blocs',  
+                icon: '⬜',
+                elements: {
+                    'bloc_beton_40_20_20': {
+                        name: 'Bloc Béton 40x20x20',
+                        file: 'https://wall3dsim.com/biblio/bloc_beton_40_20_20.dae',
+                        dimensions: { x: 40, y: 20, z: 20 },
+                        description: 'Bloc en béton 40x20x20 cm',
+                        material: 'Béton',
+                        weight: '20 kg/m²',
+                        category: 'murs'
+                    },
+                    'bloc_terre_cuite_30_10_15': {
+                        name: 'Bloc Terre Cuite 30x10x15',
+                        file: 'https://wall3dsim.com/biblio/bloc_terre_cuite_30_10_15.dae',
+                        dimensions: { x: 30, y: 10, z: 15 },
+                        description: 'Bloc en terre cuite 30x10x15 cm',
+                        material: 'Terre cuite',
+                        weight: '15 kg/m²',
+                        category: 'murs'
+                    }
+                }
+            },
+            linteaux: {
+                name: 'Linteaux',
+                icon: '━',
+                elements: {
+                    'linteau_beton_120_20_20': {
+                        name: 'Linteau Béton 120x20x20',
+                        file: 'https://wall3dsim.com/biblio/linteau_beton_120_20_20.dae',
+                        dimensions: { x: 120, y: 20, z: 20 },
+                        description: 'Linteau en béton 120x20x20 cm',
+                        material: 'Béton',
+                        weight: '25 kg/m²',
+                        category: 'linteaux'
+                    },
+                    'linteau_terre_cuite_100_10_10': {
+                        name: 'Linteau Terre Cuite 100x10x10',
+                        file: 'https://wall3dsim.com/biblio/linteau_terre_cuite_100_10_10.dae',
+                        dimensions: { x: 100, y: 10, z: 10 },
+                        description: 'Linteau en terre cuite 100x10x10 cm',
+                        material: 'Terre cuite',
+                        weight: '20 kg/m²',
+                        category: 'linteaux'
+                    }
+                }
+            },
+            isolants: {
+                name: 'Isolants',
+                icon: '🟨',
+                elements: {
+                    'isolant_placo_120_60_1.25': {
+                        name: 'Isolant Placo 120x60x1.25',
+                        file: 'https://wall3dsim.com/biblio/isolant_placo_120_60_1.25.dae',
+                        dimensions: { x: 120, y: 60, z: 1.25 },
+                        description: 'Isolant en plaques de plâtre 120x60x1.25 cm',
+                        material: 'Plâtre',
+                        weight: '10 kg/m²',
+                        category: 'isolants'
+                    },
+                    'isolant_rouleau_100_50_5': {
+                        name: 'Isolant Rouleau 100x50x5',
+                        file: 'https://wall3dsim.com/biblio/isolant_rouleau_100_50_5.dae',
+                        dimensions: { x: 100, y: 50, z: 5 },
+                        description: 'Isolant en rouleau 100x50x5 cm',
+                        material: 'Laine de verre',
+                        weight: '15 kg/m²',
+                        category: 'isolants'
+                    }
+                }
+            },
+            planchers: {
+                name: 'Planchers',
+                icon: '⬛',
+                elements: {
+                    'hourdis_13_60': {
+                        name: 'Hourdis 13+6',
+                        file: 'https://wall3dsim.com/biblio/hourdis_13_60.dae',
+                        dimensions: { x: 60, y: 13, z: 19 },
+                        description: 'Hourdis béton préfabriqué 13+6 cm, longueur 60 cm',
+                        material: 'Béton',
+                        weight: '25 kg/m²',
+                        category: 'planchers'
+                    }
+                }
+            },
+            autres: {
+                name: 'Autres',
+                icon: '📦',
+                elements: {
+                    'ligne': {
+                        name: 'Ligne',
+                        file: 'https://wall3dsim.com/biblio/ligne.dae',
+                        dimensions: { x: 100, y: 1, z: 1 },
+                        description: 'Ligne droite 100x1x1 cm',
+                        material: 'Inconnu',
+                        weight: 'N/A',
+                        category: 'autres'
+                    }
+                }
+            }
+        };
     }
 
     createToolbar() {
@@ -308,5 +442,105 @@ export class UIManager {
         } else {
             document.getElementById('properties-panel').style.display = 'none';
         }
+    }
+
+    applyColorToSelectedObject(colorHex) {
+        if (!this.app.selectedObject) {
+            console.warn('Aucun objet sélectionné pour appliquer la couleur.');
+            alert('Veuillez d\'abord sélectionner un objet.');
+            return;
+        }
+
+        console.log(`Tentative d'application de la couleur ${colorHex} à l'objet sélectionné:`, this.app.selectedObject.name || this.app.selectedObject.uuid);
+        let appliedToAtLeastOneMesh = false;
+
+        this.app.selectedObject.traverse((child) => {
+            if (child.isMesh) {
+                console.log(`Application de la couleur au maillage: ${child.name || child.uuid}`);
+                appliedToAtLeastOneMesh = true;
+
+                if (child.geometry && child.geometry.attributes && child.geometry.attributes.color) {
+                    child.geometry.deleteAttribute('color');
+                    console.log(`Couleurs de vertex supprimées de la géométrie de ${child.name || child.uuid} lors de l'application de couleur.`);
+                }
+
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(mat => {
+                            if (mat && mat.dispose) mat.dispose();
+                        });
+                    } else {
+                        if (child.material.dispose) child.material.dispose();
+                    }
+                }
+                
+                const newMaterial = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(colorHex),
+                    roughness: 0.5,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide,
+                    vertexColors: false,
+                    map: null,
+                    transparent: false,
+                    opacity: 1.0
+                });
+
+                child.material = newMaterial;
+                child.material.needsUpdate = true;
+                
+                child.visible = true;
+                child.castShadow = true;
+                child.receiveShadow = true;
+
+                console.log(`Nouvelle couleur ${colorHex} appliquée à ${child.name || child.uuid}. Couleur du nouveau matériau: #${child.material.color.getHexString()}`);
+            }
+        });
+
+        if (!appliedToAtLeastOneMesh) {
+            console.warn("L'objet sélectionné ou ses enfants ne contenaient aucun maillage auquel appliquer la couleur.");
+        }
+
+        if (this.app.renderer && this.app.scene && this.app.camera) {
+            this.app.renderer.render(this.app.scene, this.app.camera);
+            console.log('Rendu déclenché après application de la couleur.');
+        }
+        
+        const output = document.getElementById('command-output');
+        if (output) {
+            output.textContent = `Couleur ${colorHex} appliquée.`;
+        }
+    }
+
+    setupSunlightControls() {
+        const azimuthSlider = document.getElementById('sun-azimuth');
+        const elevationSlider = document.getElementById('sun-elevation');
+        const azimuthValue = document.getElementById('azimuth-value');
+        const elevationValue = document.getElementById('elevation-value');
+        
+        if (!azimuthSlider || !elevationSlider) {
+            console.warn("Contrôles de lumière solaire non trouvés dans le DOM");
+            return;
+        }
+        
+        const updateSunlight = () => {
+            const azimuth = parseFloat(azimuthSlider.value);
+            const elevation = parseFloat(elevationSlider.value);
+            
+            if (azimuthValue) azimuthValue.textContent = azimuth.toFixed(1) + '°';
+            if (elevationValue) elevationValue.textContent = elevation.toFixed(1) + '°';
+            
+            // Vérifier que sunlightManager existe avant d'appeler updateSunPosition
+            if (this.app.sunlightManager && typeof this.app.sunlightManager.updateSunPosition === 'function') {
+                this.app.sunlightManager.updateSunPosition(azimuth, elevation);
+            } else {
+                console.warn("SunlightManager non disponible ou updateSunPosition non définie");
+            }
+        };
+        
+        azimuthSlider.addEventListener('input', updateSunlight);
+        elevationSlider.addEventListener('input', updateSunlight);
+        
+        // Appliquer les valeurs initiales
+        updateSunlight();
     }
 }

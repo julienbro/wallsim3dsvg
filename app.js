@@ -105,3 +105,88 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
+// Ajoutez ces méthodes sur le prototype de WebCAD SANS redéclarer la classe
+
+if (typeof WebCAD !== "undefined") {
+    WebCAD.prototype.setDimensionScale = function(scale, scaleText) {
+        const previousScale = this.dimensionScale || 1;
+        this.dimensionScale = scale;
+        this.currentScaleText = scaleText;
+
+        // Mettre à jour l'outil de cotation s'il existe
+        if (this.drawingManager && this.drawingManager.dimensionTool) {
+            this.drawingManager.dimensionTool.updateScale(scale);
+            const scaleDisplay = document.getElementById('current-scale-display');
+            if (scaleDisplay) scaleDisplay.textContent = scaleText;
+        }
+
+        // Supprimer les cotations existantes si besoin
+        if (this.drawingManager && 
+            this.drawingManager.dimensionTool && 
+            this.drawingManager.dimensionTool.createdDimensions && 
+            this.drawingManager.dimensionTool.createdDimensions.length > 0) {
+            
+            const confirmDelete = confirm(
+                `Le changement d'échelle va supprimer ${this.drawingManager.dimensionTool.createdDimensions.length} cotation(s) existante(s).\nNouvelle échelle: ${scaleText}\nVoulez-vous continuer ?`
+            );
+            
+            if (confirmDelete) {
+                // Vérifier que la méthode existe avant de l'appeler
+                if (typeof this.drawingManager.dimensionTool.removeAllDimensions === 'function') {
+                    this.drawingManager.dimensionTool.removeAllDimensions();
+                } else {
+                    console.warn('La méthode removeAllDimensions n\'existe pas sur dimensionTool');
+                }
+                
+                const cmdOutput = document.getElementById('command-output');
+                if (cmdOutput) {
+                    cmdOutput.textContent = `Échelle de cotation changée à ${scaleText}. Les anciennes cotations ont été supprimées.`;
+                }
+            } else {
+                // Annuler le changement d'échelle
+                this.dimensionScale = previousScale;
+                this.currentScaleText = this.getScaleText ? this.getScaleText(previousScale) : '1:1';
+                if (this.drawingManager && this.drawingManager.dimensionTool) {
+                    this.drawingManager.dimensionTool.updateScale(previousScale);
+                }
+                document.querySelectorAll('.scale-option').forEach(opt => {
+                    opt.classList.remove('active');
+                    if (parseFloat(opt.dataset.scale) === previousScale) {
+                        opt.classList.add('active');
+                    }
+                });
+                return;
+            }
+        } else {
+            const cmdOutput = document.getElementById('command-output');
+            if (cmdOutput) {
+                cmdOutput.textContent = `Échelle de cotation définie à ${scaleText}`;
+            }
+        }
+        // Mettre à jour la barre d'état
+        if (typeof this.updateStatusBar === "function") this.updateStatusBar();
+    };
+
+    WebCAD.prototype.getScaleText = function(scale) {
+        const scaleMap = {
+            1: '1:1',
+            0.5: '1:2',
+            0.2: '1:5',
+            0.1: '1:10',
+            0.05: '1:20',
+            0.02: '1:50',
+            0.01: '1:100',
+            0.005: '1:200',
+            0.002: '1:500'
+        };
+        return scaleMap[scale] || `1:${Math.round(1/scale)}`;
+    };
+
+    WebCAD.prototype.updateStatusBar = function() {
+        const modeIndicator = document.getElementById('mode-indicator');
+        if (modeIndicator) {
+            modeIndicator.textContent = `Mode: ${this.is3DMode ? '3D' : '2D'} | Échelle: ${this.currentScaleText || '1:1'}`;
+        }
+    };
+}

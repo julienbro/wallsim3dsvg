@@ -9,6 +9,8 @@ import { ToolManager } from '../managers/ToolManager.js';
 import { UIManager } from '../managers/UIManager.js';
 import { FileManager } from '../managers/FileManager.js';
 import { ViewManager } from '../managers/ViewManager.js';
+import { SunlightManager } from '../managers/SunlightManager.js'; // Add this import
+import { NorthIndicator } from '../ui/UIManager.js';
 
 // WebCAD Application
 export class WebCAD {
@@ -23,6 +25,7 @@ export class WebCAD {
         
         this.objects = [];
         this.selectedObject = null;
+        this.selectedObjects = []; // Add array to track multiple selections
         this.currentTool = 'select';
         this.is3DMode = false;
         this.gridHelper = null;
@@ -45,6 +48,8 @@ export class WebCAD {
         
         this.init();
         this.initManagers();
+        // Initialiser l'indicateur nord
+        this.northIndicator = new NorthIndicator(this);
         this.setupEventListeners();
         this.animate();
         
@@ -81,7 +86,9 @@ export class WebCAD {
         });
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.shadowMap.enabled = false;
+        // Activer les ombres dès le début
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.autoClear = true;
         container.appendChild(this.renderer.domElement);
         
@@ -118,10 +125,22 @@ export class WebCAD {
         this.uiManager = new UIManager(this);
 
         // Ensure specific data fields are empty after UIManager initialization.
-        // Note: This primarily affects the initial state. If UIManager or other
-        // components load data into these fields later (e.g., from a file),
-        // this call alone won't prevent that subsequent population.
         this.ensureDataFieldsAreEmpty();
+        
+        // Ajouter les gestionnaires d'événements pour les raccourcis clavier d'import
+        this.setupImportKeyboardShortcuts();
+    }
+
+    setupImportKeyboardShortcuts() {
+        document.addEventListener('keydown', (event) => {
+            // Ctrl+I pour importer COLLADA
+            if (event.ctrlKey && event.key === 'i') {
+                event.preventDefault();
+                this.fileManager.importColladaFile().catch(error => {
+                    console.error('Erreur lors de l\'importation via raccourci:', error);
+                });
+            }
+        });
     }
 
     ensureDataFieldsAreEmpty() {
@@ -183,13 +202,12 @@ export class WebCAD {
     createWorkPlane() {
         // Créer un grand plan pour le plateau de travail
         const planeGeometry = new THREE.PlaneGeometry(1000, 1000);
-        // Utiliser MeshLambertMaterial avec emissive pour garder la couleur blanche
+        // Utiliser MeshLambertMaterial avec émissivité pour un blanc lumineux qui reçoit des ombres
         const planeMaterial = new THREE.MeshLambertMaterial({ 
             color: 0xffffff,
-            emissive: 0xccccc9,
-            emissiveIntensity: 0.8,
-            side: THREE.DoubleSide,
-            depthWrite: true
+            emissive: 0xffffff,
+            emissiveIntensity: 0.4,
+            side: THREE.DoubleSide
         });
         const plane = new THREE.Mesh(planeGeometry, planeMaterial);
         plane.position.z = -0.1;
@@ -210,12 +228,9 @@ export class WebCAD {
         this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.renderer.domElement.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            
-            // Afficher le menu contextuel pour la polyligne
-            if (this.drawingManager.isDrawing && this.drawingManager.drawingMode === 'polyline') {
-                this.drawingManager.showContextMenu(e.clientX, e.clientY);
-            } else {
-                this.drawingManager.cancelDrawing();
+            // Déléguer au SelectionManager si disponible
+            if (this.selectionManager && typeof this.selectionManager.handleRightClick === 'function') {
+                this.selectionManager.handleRightClick(e);
             }
         });
         
@@ -235,13 +250,17 @@ export class WebCAD {
                 } else {
                     this.applyTextureToObject(object, this.selectedTexture);
                 }
-                
-                // Vérifier que la méthode existe avant de l'appeler
-                if (this.uiManager && this.uiManager.cancelTextureMode) {
-                    this.uiManager.cancelTextureMode();
+
+                // Après avoir appliqué la texture/couleur, repasser en mode sélection
+                this.textureApplyMode = false;
+                this.selectedTexture = null;
+                if (this.toolManager) {
+                    this.toolManager.setTool('select');
+                    // Restaurer le curseur par défaut
+                    this.renderer.domElement.style.cursor = 'default';
                 }
-                return;
             }
+            return;
         }
         
         const rect = this.renderer.domElement.getBoundingClientRect();
@@ -251,30 +270,34 @@ export class WebCAD {
         this.raycaster.setFromCamera(this.mouse, this.camera);
         
         if (this.currentTool === 'select') {
-            const intersects = this.raycaster.intersectObjects(this.objects);
+            const intersects = this.getIntersections(event);
             if (intersects.length > 0) {
-                this.selectObject(intersects[0].object);
+                const clickedObject = intersects[0].object;
+                // Si l'objet cliqué fait partie d'un groupe, sélectionner le groupe entier
+                if (clickedObject.parent instanceof THREE.Group) {
+                    this.selectObject(clickedObject.parent);
+                } else {
+                    this.selectObject(clickedObject);
+                }
             } else {
                 this.deselectAll();
             }
         } else if (this.currentTool === 'extrude') {
             this.extrusionManager.handleExtrusion(event);
-        } else if (['parallel', 'trim', 'extend'].includes(this.currentTool)) {
+        } else if (['parallel', 'trim', 'extend', 'dimension'].includes(this.currentTool)) {
             // Pour les nouveaux outils, passer directement le point 3D
             let point = this.getWorldPoint(event);
             if (point) {
+                // Appliquer l'accrochage
+                point = this.snapManager.checkSnapping(point, event);
                 this.drawingManager.handleDrawing(point);
             }
         } else {
             // Gérer le dessin multi-points pour les autres outils
             let point = this.getWorldPoint(event);
             if (point) {
-                // Vérifier s'il y a un point d'accrochage actif
-                if (this.snapManager.snapIndicator.visible && this.snapManager.currentSnapType) {
-                    // Utiliser exactement la position du point d'accrochage
-                    point = this.snapManager.snapIndicator.position.clone();
-                    point.z = 0; // Garder sur le plan de travail
-                }
+                // Appliquer l'accrochage
+                point = this.snapManager.checkSnapping(point, event);
                 this.drawingManager.handleDrawing(point);
             }
         }
@@ -323,42 +346,74 @@ export class WebCAD {
     }
     
     getIntersections(event) {
-        // Calculer la position de la souris en coordonnées normalisées
         const rect = this.renderer.domElement.getBoundingClientRect();
         const mouse = new THREE.Vector2();
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         
-        // Créer un raycaster
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, this.camera);
         
-        // Trouver les intersections avec les objets
-        return raycaster.intersectObjects(this.objects);
+        // Obtenir toutes les intersections
+        const intersects = raycaster.intersectObjects(this.objects, true); // true pour inclure les enfants
+        
+        // Réorganiser les intersections pour prioriser les groupes
+        return intersects.map(intersect => {
+            // Remonter la hiérarchie pour trouver le groupe parent le plus proche
+            let parent = intersect.object;
+            while (parent.parent && !(parent.parent instanceof THREE.Scene)) {
+                parent = parent.parent;
+            }
+            return {
+                ...intersect,
+                object: parent // Remplacer l'objet intersecté par son groupe parent
+            };
+        });
     }
     
     selectObject(object) {
-        // Désélectionner l'objet précédent
-        this.deselectAll();
-        
+        // Check if shift is held for multi-select
+        if (!this.drawingManager.shiftPressed) {
+            this.deselectAll();
+        }
+
         this.selectedObject = object;
+        object.userData.isSelected = true;
+        this.selectedObjects.push(object);
         this.transformControls.attach(object);
         
-        // Ajouter la surbrillance bleue
-        this.highlightObject(object);
-        
-        // Mettre à jour le panneau de propriétés
+        // Highlight le groupe et tous ses enfants
+        if (object instanceof THREE.Group) {
+            // Highlight chaque enfant du groupe individuellement
+            object.children.forEach(child => {
+                this.highlightObject(child);
+                child.userData.isSelected = true;
+            });
+        } else {
+            this.highlightObject(object);
+        }
+
         if (this.uiManager) {
             this.uiManager.updatePropertiesPanel(object);
         }
     }
     
     deselectAll() {
-        if (this.selectedObject) {
-            // Retirer la surbrillance
-            this.unhighlightObject(this.selectedObject);
-            this.selectedObject = null;
-        }
+        this.selectedObjects.forEach(obj => {
+            if (obj instanceof THREE.Group) {
+                // Unhighlight chaque enfant du groupe
+                obj.children.forEach(child => {
+                    this.unhighlightObject(child);
+                    child.userData.isSelected = false;
+                });
+            } else {
+                this.unhighlightObject(obj);
+            }
+            obj.userData.isSelected = false;
+        });
+        
+        this.selectedObjects = [];
+        this.selectedObject = null;
         this.transformControls.detach();
         
         if (this.uiManager) {
@@ -367,7 +422,45 @@ export class WebCAD {
     }
     
     highlightObject(object) {
-        // Sauvegarder les matériaux originaux
+        // Si c'est un groupe, mettre en surbrillance tous ses enfants
+        if (object instanceof THREE.Group) {
+            object.children.forEach(child => {
+                // Sauvegarder les matériaux originaux
+                if (!child.userData.originalMaterial && child.material) {
+                    child.userData.originalMaterial = child.material;
+                    child.userData.originalOpacity = child.material.opacity;
+                    child.userData.originalTransparent = child.material.transparent;
+                }
+
+                if (child instanceof THREE.Mesh && child.geometry) {
+                    // Créer un contour pour les meshes
+                    const outlineGeometry = child.geometry.clone();
+                    const outlineMaterial = new THREE.MeshBasicMaterial({
+                        color: 0x0066ff,
+                        side: THREE.BackSide,
+                        transparent: true,
+                        opacity: 0.6
+                    });
+                    const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+                    outline.scale.multiplyScalar(1.05);
+                    outline.name = 'highlight-outline';
+                    outline.renderOrder = child.renderOrder - 1;
+                    child.add(outline);
+                } else if (child instanceof THREE.Line) {
+                    // Pour les lignes, changer la couleur
+                    const highlightMaterial = new THREE.LineBasicMaterial({
+                        color: 0x0066ff,
+                        linewidth: 4,
+                        opacity: 1,
+                        transparent: false
+                    });
+                    child.material = highlightMaterial;
+                }
+            });
+            return;
+        }
+
+        // Le reste de la méthode reste inchangé pour les objets non-groupes
         if (!object.userData.originalMaterial) {
             if (object.material) {
                 object.userData.originalMaterial = object.material;
@@ -375,23 +468,27 @@ export class WebCAD {
                 object.userData.originalTransparent = object.material.transparent;
             }
         }
-        
-        // Créer un contour bleu pour la surbrillance
-        const outlineGeometry = object.geometry.clone();
-        const outlineMaterial = new THREE.MeshBasicMaterial({
-            color: 0x0066ff,
-            side: THREE.BackSide,
-            transparent: true,
-            opacity: 0.6
-        });
-        
-        const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-        outline.scale.multiplyScalar(1.05); // Légèrement plus grand
-        outline.name = 'highlight-outline';
-        outline.renderOrder = object.renderOrder - 1;
-        
-        object.add(outline);
-        
+
+        // Vérifier que l'objet a une géométrie et un matériau avant de créer le contour
+        if (object.geometry && object.material) {
+            // Créer un contour bleu pour la surbrillance
+            const outlineGeometry = object.geometry.clone();
+            const outlineMaterial = new THREE.MeshBasicMaterial({
+                color: 0x0066ff,
+                side: THREE.BackSide,
+                transparent: true,
+                opacity: 0.6
+            });
+            const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+            outline.scale.multiplyScalar(1.05); // Légèrement plus grand
+            outline.name = 'highlight-outline';
+            outline.renderOrder = object.renderOrder - 1;
+            object.add(outline);
+        } else if (!(object instanceof THREE.Group)) {
+            // Si pas de géométrie ou de matériau, ne pas tenter de surligner (sauf pour les Group)
+            console.warn('Impossible de surligner cet objet (pas de géométrie ou matériau)', object);
+        }
+
         // Pour les lignes, changer la couleur
         if (object instanceof THREE.Line) {
             const highlightMaterial = new THREE.LineBasicMaterial({
@@ -416,6 +513,28 @@ export class WebCAD {
     }
     
     unhighlightObject(object) {
+        if (object instanceof THREE.Group) {
+            object.children.forEach(child => {
+                // Retirer le contour de surbrillance
+                const outline = child.getObjectByName('highlight-outline');
+                if (outline) {
+                    child.remove(outline);
+                    if (outline.geometry) outline.geometry.dispose();
+                    if (outline.material) outline.material.dispose();
+                }
+                
+                // Restaurer le matériau original
+                if (child.userData.originalMaterial) {
+                    child.material = child.userData.originalMaterial;
+                    delete child.userData.originalMaterial;
+                    delete child.userData.originalOpacity;
+                    delete child.userData.originalTransparent;
+                }
+            });
+            return;
+        }
+
+        // Le reste de la méthode reste inchangé pour les objets non-groupes
         // Retirer le contour de surbrillance
         const outline = object.getObjectByName('highlight-outline');
         if (outline) {
@@ -769,6 +888,15 @@ export class WebCAD {
         } else if (event.key === 'o' || event.key === 'O') {
             // Raccourci pour activer le mode orbit
             this.activateOrbitMode();
+        } else if (event.key === 'g' && event.ctrlKey) {
+            event.preventDefault();
+            const selectedObjects = this.objects.filter(obj => obj.userData.isSelected);
+            this.createGroup(selectedObjects);
+        } else if (event.key === 'e' && event.ctrlKey) {
+            event.preventDefault();
+            if (this.selectedObject instanceof THREE.Group) {
+                this.explodeGroup(this.selectedObject);
+            }
         }
         
         // Déléguer aux gestionnaires
@@ -959,98 +1087,49 @@ export class WebCAD {
     }
     
     setupLighting() {
-        // Lumière ambiante
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        // Lumière ambiante très forte pour des surfaces blanches
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
         this.scene.add(ambientLight);
+
+        // Stocker directionalLight comme propriété de l'instance
+        this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        this.directionalLight.position.set(50, 100, 75);
+        this.directionalLight.castShadow = true;
         
-        // Lumière directionnelle (soleil) avec ombres
-        this.sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        this.sunLight.position.set(50, 50, 100);
-        this.sunLight.castShadow = true;
+        // Configuration détaillée des ombres
+        this.directionalLight.shadow.mapSize.width = 2048;
+        this.directionalLight.shadow.mapSize.height = 2048;
+        this.directionalLight.shadow.camera.near = 0.5;
+        this.directionalLight.shadow.camera.far = 500;
+        this.directionalLight.shadow.camera.left = -100;
+        this.directionalLight.shadow.camera.right = 100;
+        this.directionalLight.shadow.camera.top = 100;
+        this.directionalLight.shadow.camera.bottom = -100;
         
-        // Configuration des ombres
-        this.sunLight.shadow.mapSize.width = 2048;
-        this.sunLight.shadow.mapSize.height = 2048;
-        this.sunLight.shadow.camera.near = 0.5;
-        this.sunLight.shadow.camera.far = 500;
-        this.sunLight.shadow.camera.left = -100;
-        this.sunLight.shadow.camera.right = 100;
-        this.sunLight.shadow.camera.top = 100;
-        this.sunLight.shadow.camera.bottom = -100;
+        this.scene.add(this.directionalLight);
         
-        this.scene.add(this.sunLight);
+        // Ajouter une cible pour la lumière directionnelle
+        const lightTarget = new THREE.Object3D();
+        lightTarget.position.set(0, 0, 0);
+        this.scene.add(lightTarget);
+        this.directionalLight.target = lightTarget;
         
-        // Helper pour visualiser la direction du soleil (optionnel)
-        this.sunHelper = new THREE.DirectionalLightHelper(this.sunLight, 10);
-        this.sunHelper.visible = false;
-        this.scene.add(this.sunHelper);
-        
-        // Activer les ombres sur le renderer
-        this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // Lumière hémisphérique blanche
+        const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.2);
+        this.scene.add(hemisphereLight);
+
+        console.log("Lighting setup complete with shadows enabled.");
     }
-    
+
     createSunlightManager() {
-        this.sunlightManager = {
-            month: 6, // Juin par défaut
-            hour: 12, // Midi par défaut
-            latitude: 48.8566, // Paris par défaut
-            northAngle: 0, // Angle du Nord en degrés
-            
-            updateSunPosition: () => {
-                const { azimuth, elevation } = this.calculateSunPosition(
-                    this.sunlightManager.month,
-                    this.sunlightManager.hour,
-                    this.sunlightManager.latitude
-                );
-                
-                // NOUVEAU: Appliquer l'offset du Nord à l'azimut
-                const northAngle = this.sunlightManager.northAngle || 0;
-                const adjustedAzimuth = azimuth + northAngle;
-                
-                console.log(`Position soleil: azimut=${azimuth.toFixed(1)}°, ajusté=${adjustedAzimuth.toFixed(1)}° (Nord à ${northAngle}°), élévation=${elevation.toFixed(1)}°`);
-                
-                // Convertir azimuth ajusté et élévation en position 3D
-                const distance = 150;
-                const azimuthRad = (adjustedAzimuth - 90) * Math.PI / 180; // -90 pour aligner avec le nord
-                const elevationRad = elevation * Math.PI / 180;
-                
-                const newX = distance * Math.cos(elevationRad) * Math.cos(azimuthRad);
-                const newY = distance * Math.cos(elevationRad) * Math.sin(azimuthRad);
-                const newZ = distance * Math.sin(elevationRad);
-                
-                console.log(`Nouvelle position lumière: x=${newX.toFixed(2)}, y=${newY.toFixed(2)}, z=${newZ.toFixed(2)}`);
-                
-                this.sunLight.position.set(newX, newY, newZ);
-                
-                // Faire pointer la lumière vers l'origine
-                this.sunLight.target.position.set(0, 0, 0);
-                this.sunLight.target.updateMatrixWorld();
-                
-                // Ajuster l'intensité selon l'heure
-                if (elevation <= 0) {
-                    this.sunLight.intensity = 0; // Nuit
-                } else if (elevation < 10) {
-                    this.sunLight.intensity = 0.3; // Aube/Crépuscule
-                } else {
-                    this.sunLight.intensity = 0.8; // Jour
-                }
-                
-                // Mettre à jour le helper si visible
-                if (this.sunHelper) {
-                    this.sunHelper.update();
-                }
-                
-                // NOUVEAU: Forcer la mise à jour des ombres
-                if (this.renderer && this.renderer.shadowMap) {
-                    this.renderer.shadowMap.needsUpdate = true;
-                }
-                
-                // Afficher les informations avec l'angle du Nord
-                document.getElementById('command-output').textContent = 
-                    `Soleil: Mois ${this.sunlightManager.month}, ${this.sunlightManager.hour}h - Azimut: ${adjustedAzimuth.toFixed(1)}° (Nord: ${northAngle}°), Élévation: ${elevation.toFixed(1)}°`;
-            }
-        };
+        console.log('Creating SunlightManager...');
+        if (typeof SunlightManager !== 'undefined') {
+            this.sunlightManager = new SunlightManager(this);
+            this.sunlightManager.createSunHelper();
+            console.log('SunlightManager created successfully');
+        } else {
+            console.error('SunlightManager class is not defined.');
+        }
     }
     
     calculateSunPosition(month, hour, latitude) {
@@ -1113,45 +1192,48 @@ export class WebCAD {
     }
     
     applyTextureToObject(object, texture) {
-        // Vérifier que l'objet a une URL de texture valide
         if (!texture.url) {
             console.error('Texture sans URL:', texture);
             return;
         }
-        
-        const loader = new THREE.TextureLoader();
-        loader.load(texture.url, (loadedTexture) => {
-            // Configuration de la texture
-            loadedTexture.wrapS = THREE.RepeatWrapping;
-            loadedTexture.wrapT = THREE.RepeatWrapping;
-            loadedTexture.repeat.set(1, 1);
-            
-            // Créer un nouveau matériau avec la texture
+
+        const applyTextureToMesh = (mesh, loadedTexture) => {
             let newMaterial;
-            if (object.material instanceof THREE.MeshPhongMaterial || 
-                object.material instanceof THREE.MeshLambertMaterial) {
-                newMaterial = object.material.clone();
+            if (mesh.material instanceof THREE.MeshPhongMaterial || 
+                mesh.material instanceof THREE.MeshLambertMaterial) {
+                newMaterial = mesh.material.clone();
                 newMaterial.map = loadedTexture;
                 newMaterial.needsUpdate = true;
             } else {
-                // Créer un matériau Phong si ce n'est pas déjà un matériau compatible
                 newMaterial = new THREE.MeshPhongMaterial({
                     map: loadedTexture,
                     side: THREE.DoubleSide
                 });
             }
+            mesh.material = newMaterial;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+        };
+
+        const loader = new THREE.TextureLoader();
+        loader.load(texture.url, (loadedTexture) => {
+            loadedTexture.wrapS = THREE.RepeatWrapping;
+            loadedTexture.wrapT = THREE.RepeatWrapping;
+            loadedTexture.repeat.set(1, 1);
             
-            // Appliquer le nouveau matériau
-            object.material = newMaterial;
-            
-            // Conserver les propriétés d'ombre
-            object.castShadow = true;
-            object.receiveShadow = true;
+            if (object instanceof THREE.Group) {
+                // Appliquer la texture à tous les enfants du groupe
+                object.traverse(child => {
+                    if (child instanceof THREE.Mesh && child.material) {
+                        applyTextureToMesh(child, loadedTexture);
+                    }
+                });
+            } else if (object instanceof THREE.Mesh) {
+                applyTextureToMesh(object, loadedTexture);
+            }
             
             document.getElementById('command-output').textContent = 
-                `Texture "${texture.name}" appliquée à l'objet`;
-            
-            console.log(`Texture ${texture.name} appliquée à l'objet`);
+                `Texture "${texture.name}" appliquée`;
         }, undefined, (error) => {
             console.error('Erreur lors du chargement de la texture:', error);
             document.getElementById('command-output').textContent = 
@@ -1160,45 +1242,48 @@ export class WebCAD {
     }
     
     applyColorToObject(object, color) {
-        // Vérifier que la couleur a un hex valide
         if (!color.hex) {
             console.error('Couleur sans hex:', color);
             return;
         }
-        
-        // Créer un nouveau matériau avec la couleur
-        let newMaterial;
-        if (object.material instanceof THREE.MeshPhongMaterial || 
-            object.material instanceof THREE.MeshLambertMaterial) {
-            newMaterial = object.material.clone();
-            // Utiliser setStyle au lieu de setHex pour une meilleure compatibilité
-            newMaterial.color.setStyle(color.hex);
-            newMaterial.map = null; // Supprimer la texture s'il y en avait une
-            newMaterial.needsUpdate = true;
-        } else {
-            // Créer un matériau Phong avec la couleur
-            newMaterial = new THREE.MeshPhongMaterial({
-                color: new THREE.Color(color.hex),
-                side: THREE.DoubleSide
+
+        const applyColorToMesh = (mesh) => {
+            let newMaterial;
+            if (mesh.material instanceof THREE.MeshPhongMaterial || 
+                mesh.material instanceof THREE.MeshLambertMaterial) {
+                newMaterial = mesh.material.clone();
+                newMaterial.color.setStyle(color.hex);
+                newMaterial.map = null;
+                newMaterial.needsUpdate = true;
+            } else {
+                newMaterial = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(color.hex),
+                    side: THREE.DoubleSide
+                });
+            }
+            mesh.material = newMaterial;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+        };
+
+        if (object instanceof THREE.Group) {
+            // Appliquer la couleur à tous les enfants du groupe
+            object.traverse(child => {
+                if (child instanceof THREE.Mesh && child.material) {
+                    applyColorToMesh(child);
+                }
             });
+        } else if (object instanceof THREE.Mesh) {
+            applyColorToMesh(object);
         }
-        
-        // Appliquer le nouveau matériau
-        object.material = newMaterial;
-        
-        // Conserver les propriétés d'ombre
-        object.castShadow = true;
-        object.receiveShadow = true;
-        
-        // Mettre à jour les propriétés
+
+        // Mettre à jour l'interface
         if (this.uiManager && this.uiManager.updatePropertiesPanel) {
             this.uiManager.updatePropertiesPanel(object);
         }
-        
+
         document.getElementById('command-output').textContent = 
-            `Couleur "${color.name}" appliquée à l'objet`;
-        
-        console.log(`Couleur ${color.name} (${color.hex}) appliquée à l'objet`);
+            `Couleur "${color.name}" appliquée`;
     }
     
     handleMouseDown(event) {
@@ -1245,5 +1330,84 @@ export class WebCAD {
                 this.drawingManager.handleDrawing(point);
             }
         }
+    }
+
+    createGroup(objects) {
+        if (!objects || objects.length === 0) {
+            console.warn('No objects provided to create a group.');
+            return;
+        }
+
+        const group = new THREE.Group();
+        group.userData.type = 'group'; // Marquer comme groupe pour identification
+        
+        objects.forEach(obj => {
+            this.scene.remove(obj);
+            group.add(obj);
+            // S'assurer que les objets du groupe ne sont pas sélectionnables individuellement
+            obj.userData.isPartOfGroup = true;
+        });
+
+        this.scene.add(group);
+        this.objects.push(group);
+
+        // Update layers
+        this.layers[this.currentLayer].objects = this.layers[this.currentLayer].objects.filter(obj => !objects.includes(obj));
+        this.layers[this.currentLayer].objects.push(group);
+
+        this.addToHistory('createGroup', group, { objects });
+        document.getElementById('command-output').textContent = 'Group created.';
+        console.log('Group created:', group);
+    }
+
+    explodeGroup(group) {
+        if (!(group instanceof THREE.Group)) {
+            console.warn('Provided object is not a group.');
+            return;
+        }
+
+        // Détacher les contrôles avant de modifier la scène
+        this.transformControls.detach();
+        this.deselectAll();
+
+        const objects = [...group.children];
+        
+        // Ajouter les objets à la scène en préservant leur position mondiale
+        objects.forEach(child => {
+            // Calculer et appliquer la matrice mondiale avant de retirer du groupe
+            child.updateMatrixWorld(true);
+            const worldPosition = child.getWorldPosition(new THREE.Vector3());
+            const worldQuaternion = child.getWorldQuaternion(new THREE.Quaternion());
+            const worldScale = child.getWorldScale(new THREE.Vector3());
+            
+            // Ajouter à la scène
+            this.scene.add(child);
+            
+            // Appliquer la transformation mondiale préservée
+            child.position.copy(worldPosition);
+            child.quaternion.copy(worldQuaternion);
+            child.scale.copy(worldScale);
+            
+            // Réinitialiser le flag isPartOfGroup
+            delete child.userData.isPartOfGroup;
+        });
+
+        // Maintenant on peut supprimer le groupe
+        this.scene.remove(group);
+        this.objects = this.objects.filter(obj => obj !== group);
+        this.objects.push(...objects);
+
+        // Update layers
+        this.layers[this.currentLayer].objects = this.layers[this.currentLayer].objects.filter(obj => obj !== group);
+        this.layers[this.currentLayer].objects.push(...objects);
+
+        // Sélectionner le premier objet éclaté
+        if (objects.length > 0) {
+            this.selectObject(objects[0]);
+        }
+
+        this.addToHistory('explodeGroup', null, { group, objects });
+        document.getElementById('command-output').textContent = 'Group exploded.';
+        console.log('Group exploded:', group);
     }
 }

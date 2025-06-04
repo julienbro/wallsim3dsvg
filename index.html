@@ -13,8 +13,12 @@
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.159.0/examples/jsm/"
+            "three": "https://unpkg.com/three@0.155.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.155.0/examples/jsm/",
+            "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.155.0/examples/jsm/controls/OrbitControls.js",
+            "three/examples/jsm/loaders/FontLoader.js": "https://unpkg.com/three@0.155.0/examples/jsm/loaders/FontLoader.js",
+            "three/examples/jsm/geometries/TextGeometry.js": "https://unpkg.com/three@0.155.0/examples/jsm/geometries/TextGeometry.js",
+            "three/addons/loaders/ColladaLoader.js": "https://unpkg.com/three@0.155.0/examples/jsm/loaders/ColladaLoader.js"
         }
     }
     </script>
@@ -51,6 +55,7 @@
                 <div class="dropdown-content">
                     <a href="#" id="new-project">Nouveau</a>
                     <a href="#" id="open-project">Ouvrir</a>
+                    <a href="#" id="import-collada">Importer COLLADA (.dae)</a>
                     <a href="#" id="save-project">Enregistrer</a>
                     <a href="#" id="export-project">Exporter</a>
                 </div>
@@ -82,6 +87,20 @@
                     <a href="#" id="style-elements-white">Élément en blancs</a>
                 </div>
             </div>
+            <div class="menu-item dropdown" id="dimension-scale-menu">
+                <span>Échelle de cotation</span>
+                <div class="dropdown-content" id="dimension-scale-dropdown">
+                    <a href="#" class="scale-option" data-scale="1">1:1</a>
+                    <a href="#" class="scale-option" data-scale="0.5">1:2</a>
+                    <a href="#" class="scale-option" data-scale="0.2">1:5</a>
+                    <a href="#" class="scale-option" data-scale="0.1">1:10</a>
+                    <a href="#" class="scale-option" data-scale="0.05">1:20</a>
+                    <a href="#" class="scale-option" data-scale="0.02">1:50</a>
+                    <a href="#" class="scale-option" data-scale="0.01">1:100</a>
+                    <a href="#" class="scale-option" data-scale="0.005">1:200</a>
+                    <a href="#" class="scale-option" data-scale="0.002">1:500</a>
+                </div>
+            </div>
             <!-- Logo centré -->
             <div class="menu-logo">
                 <img src="https://wallsim3d.com/logo/logo1.png" alt="Logo">
@@ -108,6 +127,10 @@
                 <button class="toolbar-btn" id="toolbar-open">
                     <i class="fas fa-folder-open"></i>
                     <span class="toolbar-btn-text">Ouvrir</span>
+                </button>
+                <button class="toolbar-btn" id="toolbar-import-collada" title="Importer un fichier COLLADA (.dae)">
+                    <i class="fas fa-file-import"></i>
+                    <span class="toolbar-btn-text">Importer DAE</span>
                 </button>
                 <button class="toolbar-btn" id="toolbar-save">
                     <i class="fas fa-save"></i>
@@ -222,9 +245,6 @@
                                 <button class="tool-btn" id="sidebar-polyline" title="Polyligne">
                                     <i class="fas fa-draw-polygon"></i>
                                 </button>
-                                <button class="tool-btn" id="sidebar-arc" title="Arc">
-                                    <i class="fas fa-bezier-curve"></i>
-                                </button>
                                 <button class="tool-btn" id="sidebar-rect" title="Rectangle">
                                     <i class="fas fa-square"></i>
                                 </button>
@@ -248,6 +268,9 @@
                                 </button>
                                 <button class="tool-btn" id="sidebar-extrude" title="Extruder">
                                     <i class="fas fa-arrow-up"></i>
+                                </button>
+                                <button class="tool-btn" id="sidebar-dimension" title="Cotation">
+                                    <i class="fas fa-ruler"></i>
                                 </button>
                             </div>
                         </div>
@@ -505,6 +528,7 @@
                                             <button class="category-tab" data-category="blocs">Blocs</button>
                                             <button class="category-tab" data-category="linteaux">Linteaux</button>
                                             <button class="category-tab" data-category="isolants">Isolants</button>
+                                            <button class="category-tab" data-category="planchers">Planchers</button>
                                             <button class="category-tab" data-category="autres">Autres</button>
                                         </div>
                                         <div id="elements-grid" class="elements-grid">
@@ -653,6 +677,8 @@
 
     <!-- Chargement des scripts avec type="module" -->
     <script type="module" src="app.js"></script>
+    <script type="module" src="js/WebCAD.js"></script>
+    <script src="js/managers/UsedElementsManager.js"></script>
     
     <script>
     // Variable globale pour stocker l'outil actuel
@@ -858,17 +884,52 @@
         window.trackedConstructionElements = window.trackedConstructionElements || [];
 
         const elementDisplayInfo = {
-            'brique-standard': { name: 'Brique Std.', icon: '🧱' },
-            'bloc-beton': { name: 'Bloc Béton', icon: '⬜' },
-            'linteau-beton': { name: 'Linteau', icon: '━' },
-            'isolant-laine': { name: 'Isolant', icon: '🟨' },
-            'brique-m90': { name: 'Brique M90', icon: '🧱' },
-            'brique-m65': { name: 'Brique M65', icon: '🧱' },
-            'brique': { name: 'Brique', icon: '🧱' },
-            'bloc': { name: 'Bloc', icon: '⬜' },
-            'linteau': { name: 'Linteau', icon: '━' },
-            'isolant': { name: 'Isolant', icon: '🟨' },
-            'unknown': { name: 'Élément', icon: '📦' }
+            // Briques spécifiques
+            'Brique M50': { name: 'Brique M50', icon: '🧱' },
+            'Brique M57': { name: 'Brique M57', icon: '🧱' },
+            'Brique M65': { name: 'Brique M65', icon: '🧱' },
+            'Brique M90': { name: 'Brique M90', icon: '🧱' },
+            'Brique WF': { name: 'Brique WF', icon: '🧱' },
+            'Brique WFD': { name: 'Brique WFD', icon: '🧱' },
+            
+            // Blocs spécifiques
+            'Bloc creux B9': { name: 'Bloc B9', icon: '⬜' },
+            'Bloc creux B14': { name: 'Bloc B14', icon: '⬜' },
+            'Bloc creux B19': { name: 'Bloc B19', icon: '⬜' },
+            'Bloc creux B29': { name: 'Bloc B29', icon: '⬜' },
+            'Bloc béton cell. 5cm': { name: 'Béton Cell. 5cm', icon: '⬜' },
+            'Bloc béton cell. 7cm': { name: 'Béton Cell. 7cm', icon: '⬜' },
+            'Bloc béton cell. 10cm': { name: 'Béton Cell. 10cm', icon: '⬜' },
+            'Bloc béton cell. 15cm': { name: 'Béton Cell. 15cm', icon: '⬜' },
+            'Bloc béton cell. 17.5cm': { name: 'Béton Cell. 17.5cm', icon: '⬜' },
+            'Bloc béton cell. 20cm': { name: 'Béton Cell. 20cm', icon: '⬜' },
+            'Bloc béton cell. 24cm': { name: 'Béton Cell. 24cm', icon: '⬜' },
+            
+            // Planchers spécifiques
+            'Hourdis 13+6': { name: 'Hourdis 13+6', icon: '⬛' },
+            
+            // Linteaux spécifiques
+            'Linteau Béton L100': { name: 'Linteau Béton L100', icon: '🧱' },
+            'Linteau Béton L120': { name: 'Linteau Béton L120', icon: '🧱' },
+            'Linteau Béton L140': { name: 'Linteau Béton L140', icon: '🧱' },
+            'Linteau Béton L160': { name: 'Linteau Béton L160', icon: '🧱' },
+            'Linteau Béton L180': { name: 'Linteau Béton L180', icon: '🧱' },
+            'Linteau Béton L200': { name: 'Linteau Béton L200', icon: '🧱' },
+            'Linteau Béton L220': { name: 'Linteau Béton L220', icon: '🧱' },
+            'Linteau Béton L240': { name: 'Linteau Béton L240', icon: '🧱' },
+            'Linteau Béton L260': { name: 'Linteau Béton L260', icon: '🧱' },
+            'Linteau Béton L280': { name: 'Linteau Béton L280', icon: '🧱' },
+            'Linteau Béton L300': { name: 'Linteau Béton L300', icon: '🧱' },
+            'Linteau Béton L320': { name: 'Linteau Béton L320', icon: '🧱' },
+            'Linteau Béton L340': { name: 'Linteau Béton L340', icon: '🧱' },
+            'Linteau Béton L360': { name: 'Linteau Béton L360', icon: '🧱' },
+            'Linteau Béton L380': { name: 'Linteau Béton L380', icon: '🧱' },
+            'Linteau Béton L400': { name: 'Linteau Béton L400', icon: '🧱' },
+            'Linteau Béton L420': { name: 'Linteau Béton L420', icon: '🧱' },
+            'Linteau Béton L440': { name: 'Linteau Béton L440', icon: '🧱' },
+            'Linteau Béton L460': { name: 'Linteau Béton L460', icon: '🧱' },
+            'Linteau Béton L480': { name: 'Linteau Béton L480', icon: '🧱' },
+            'Linteau Béton L500': { name: 'Linteau Béton L500', icon: '🧱' },
         };
 
         function updateUsedElementsDisplay() {
@@ -877,10 +938,13 @@
             
             displayList.innerHTML = '';
 
+            // Count by SPECIFIC element name (not generic type)
             const counts = {};
             window.trackedConstructionElements.forEach(elementObj => {
-                if (elementObj && elementObj.type) {
-                    counts[elementObj.type] = (counts[elementObj.type] || 0) + 1;
+                if (elementObj && elementObj.name) {
+                    // Use the specific name like "Linteau Béton L120"
+                    const key = elementObj.name;
+                    counts[key] = (counts[key] || 0) + 1;
                 }
             });
 
@@ -889,26 +953,50 @@
                 return;
             }
 
-            for (const type in counts) {
-                const info = elementDisplayInfo[type] || elementDisplayInfo['unknown'];
-                const count = counts[type];
+            for (const elementName in counts) {
+                // Use the specific element name to get display info
+                const info = elementDisplayInfo[elementName] || elementDisplayInfo['unknown'];
+                const count = counts[elementName];
+                
+                // Find the element data to get dimensions
+                const elementData = window.trackedConstructionElements.find(el => el.name === elementName);
+                const dims = elementData?.dims;
+                let dimText = '';
+                if (dims) {
+                    dimText = `${dims.x || '?'}×${dims.y || '?'}×${dims.z || '?'} cm`;
+                }
+                
                 const itemDiv = document.createElement('div');
                 itemDiv.style.cssText = `
                     padding: 8px; text-align: center; background: #f9f9f9; 
                     border: 1px solid #eee; border-radius: 4px; font-size: 11px;
                     display: flex; flex-direction: column; align-items: center; justify-content: center;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; min-height: 80px;
                 `;
+                itemDiv.setAttribute('data-elementname', elementName);
                 itemDiv.innerHTML = `
-                    <div style="font-size: 20px; margin-bottom: 2px;">${info.icon}</div>
-                    <div>${info.name}</div>
+                    <div style="font-size: 18px; margin-bottom: 4px;">${info.icon}</div>
+                    <div style="font-weight: bold; margin-bottom: 2px;">${info.name}</div>
+                    <div style="font-size: 9px; color: #666; margin-bottom: 2px;">${dimText}</div>
                     <div style="font-size: 10px; color: #777;">(x${count})</div>
                 `;
-                itemDiv.onmouseenter = function() { this.style.background = '#f0f0f0'; };
+                itemDiv.onmouseenter = function() { this.style.background = '#e8f4fd'; };
                 itemDiv.onmouseleave = function() { this.style.background = '#f9f9f9'; };
+                
+                // Click to insert the same element again
+                itemDiv.onclick = function() {
+                    if (window.app && window.app.uiManager && window.app.uiManager.insertElementByType) {
+                        window.app.uiManager.insertElementByType(elementName);
+                        console.log(`Insertion de l'élément: ${elementName}`);
+                    } else {
+                        console.warn('UIManager non disponible pour insérer l\'élément');
+                    }
+                };
+                
                 displayList.appendChild(itemDiv);
             }
         }
+
         window.updateUsedElementsDisplay = updateUsedElementsDisplay;
 
         function addTrackedElementWithUUID(elementType, uuid) {
@@ -937,7 +1025,24 @@
                 window.app.scene.add = function(...objects) {
                     objects.forEach(obj => {
                         if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement && obj.userData.elementType) {
-                            addTrackedElementWithUUID(obj.userData.elementType, obj.uuid);
+                            // Correction : utiliser CSS.escape pour éviter les erreurs de sélecteur
+                            let wrapper3d = null;
+                            if (window.document && typeof CSS !== "undefined" && CSS.escape) {
+                                try {
+                                    const safeType = CSS.escape(obj.userData.elementType);
+                                    wrapper3d = document.querySelector(`.3d-wrapper[data-type="${safeType}"]`);
+                                } catch (e) {
+                                    wrapper3d = null;
+                                }
+                            }
+                            let preview = obj.userData.elementPreview || null;
+                            window.trackedConstructionElements.push({
+                                type: obj.userData.elementType,
+                                id: obj.uuid,
+                                preview: preview,
+                                wrapper3d: wrapper3d
+                            });
+                            updateUsedElementsDisplay();
                         }
                     });
                     return originalSceneAdd.apply(this, objects);
@@ -947,7 +1052,8 @@
                 window.app.scene.remove = function(...objects) {
                     objects.forEach(obj => {
                         if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement) {
-                           removeTrackedElementByUUID(obj.uuid);
+                            window.trackedConstructionElements = window.trackedConstructionElements.filter(el => el.id !== obj.uuid);
+                            updateUsedElementsDisplay();
                         }
                     });
                     return originalSceneRemove.apply(this, objects);
@@ -1068,6 +1174,38 @@
             e.preventDefault();
             window.setElementsWhiteStyle();
         });
+        
+        // Gestion du menu Échelle de cotation (toujours actif même si ouvert par le panneau cotation)
+        function setupScaleMenuListeners() {
+            document.querySelectorAll('.scale-option').forEach(option => {
+                option.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const scale = parseFloat(option.dataset.scale);
+                    const scaleText = option.textContent;
+                    
+                    // Vérifier que l'application et les méthodes existent
+                    if (window.app && typeof window.app.setDimensionScale === 'function') {
+                        window.app.setDimensionScale(scale, scaleText);
+                        
+                        // Mettre à jour l'affichage visuel
+                        document.querySelectorAll('.scale-option').forEach(opt => opt.classList.remove('active'));
+                        option.classList.add('active');
+                    } else {
+                        console.warn('L\'application n\'est pas encore prête ou la méthode setDimensionScale n\'existe pas');
+                        setTimeout(() => {
+                            if (window.app && typeof window.app.setDimensionScale === 'function') {
+                                window.app.setDimensionScale(scale, scaleText);
+                                document.querySelectorAll('.scale-option').forEach(opt => opt.classList.remove('active'));
+                                option.classList.add('active');
+                            }
+                        }, 1000);
+                    }
+                });
+            });
+        }
+        setupScaleMenuListeners();
+        // Si le menu est réinjecté dynamiquement, réappliquer les listeners
+        window.setupScaleMenuListeners = setupScaleMenuListeners;
     });
     
     // --- Gestion des styles (blanc/couleur) - Portée globale ---
@@ -1197,7 +1335,7 @@
             window.app.originalMaterials = new Map();
         }
         
-        if (!window.app.isWhiteStyleActive) {
+        if (window.app.isWhiteStyleActive) {
             console.log('Style couleur déjà actif');
             document.getElementById('command-output').textContent = 'Style: Éléments déjà en couleur';
             return;
@@ -1237,17 +1375,52 @@
         window.trackedConstructionElements = window.trackedConstructionElements || [];
 
         const elementDisplayInfo = {
-            'brique-standard': { name: 'Brique Std.', icon: '🧱' },
-            'bloc-beton': { name: 'Bloc Béton', icon: '⬜' },
-            'linteau-beton': { name: 'Linteau', icon: '━' },
-            'isolant-laine': { name: 'Isolant', icon: '🟨' },
-            'brique-m90': { name: 'Brique M90', icon: '🧱' },
-            'brique-m65': { name: 'Brique M65', icon: '🧱' },
-            'brique': { name: 'Brique', icon: '🧱' },
-            'bloc': { name: 'Bloc', icon: '⬜' },
-            'linteau': { name: 'Linteau', icon: '━' },
-            'isolant': { name: 'Isolant', icon: '🟨' },
-            'unknown': { name: 'Élément', icon: '📦' }
+            // Briques spécifiques
+            'Brique M50': { name: 'Brique M50', icon: '🧱' },
+            'Brique M57': { name: 'Brique M57', icon: '🧱' },
+            'Brique M65': { name: 'Brique M65', icon: '🧱' },
+            'Brique M90': { name: 'Brique M90', icon: '🧱' },
+            'Brique WF': { name: 'Brique WF', icon: '🧱' },
+            'Brique WFD': { name: 'Brique WFD', icon: '🧱' },
+            
+            // Blocs spécifiques
+            'Bloc creux B9': { name: 'Bloc B9', icon: '⬜' },
+            'Bloc creux B14': { name: 'Bloc B14', icon: '⬜' },
+            'Bloc creux B19': { name: 'Bloc B19', icon: '⬜' },
+            'Bloc creux B29': { name: 'Bloc B29', icon: '⬜' },
+            'Bloc béton cell. 5cm': { name: 'Béton Cell. 5cm', icon: '⬜' },
+            'Bloc béton cell. 7cm': { name: 'Béton Cell. 7cm', icon: '⬜' },
+            'Bloc béton cell. 10cm': { name: 'Béton Cell. 10cm', icon: '⬜' },
+            'Bloc béton cell. 15cm': { name: 'Béton Cell. 15cm', icon: '⬜' },
+            'Bloc béton cell. 17.5cm': { name: 'Béton Cell. 17.5cm', icon: '⬜' },
+            'Bloc béton cell. 20cm': { name: 'Béton Cell. 20cm', icon: '⬜' },
+            'Bloc béton cell. 24cm': { name: 'Béton Cell. 24cm', icon: '⬜' },
+            
+            // Planchers spécifiques
+            'Hourdis 13+6': { name: 'Hourdis 13+6', icon: '⬛' },
+            
+            // Linteaux spécifiques
+            'Linteau Béton L100': { name: 'Linteau Béton L100', icon: '🧱' },
+            'Linteau Béton L120': { name: 'Linteau Béton L120', icon: '🧱' },
+            'Linteau Béton L140': { name: 'Linteau Béton L140', icon: '🧱' },
+            'Linteau Béton L160': { name: 'Linteau Béton L160', icon: '🧱' },
+            'Linteau Béton L180': { name: 'Linteau Béton L180', icon: '🧱' },
+            'Linteau Béton L200': { name: 'Linteau Béton L200', icon: '🧱' },
+            'Linteau Béton L220': { name: 'Linteau Béton L220', icon: '🧱' },
+            'Linteau Béton L240': { name: 'Linteau Béton L240', icon: '🧱' },
+            'Linteau Béton L260': { name: 'Linteau Béton L260', icon: '🧱' },
+            'Linteau Béton L280': { name: 'Linteau Béton L280', icon: '🧱' },
+            'Linteau Béton L300': { name: 'Linteau Béton L300', icon: '🧱' },
+            'Linteau Béton L320': { name: 'Linteau Béton L320', icon: '🧱' },
+            'Linteau Béton L340': { name: 'Linteau Béton L340', icon: '🧱' },
+            'Linteau Béton L360': { name: 'Linteau Béton L360', icon: '🧱' },
+            'Linteau Béton L380': { name: 'Linteau Béton L380', icon: '🧱' },
+            'Linteau Béton L400': { name: 'Linteau Béton L400', icon: '🧱' },
+            'Linteau Béton L420': { name: 'Linteau Béton L420', icon: '🧱' },
+            'Linteau Béton L440': { name: 'Linteau Béton L440', icon: '🧱' },
+            'Linteau Béton L460': { name: 'Linteau Béton L460', icon: '🧱' },
+            'Linteau Béton L480': { name: 'Linteau Béton L480', icon: '🧱' },
+            'Linteau Béton L500': { name: 'Linteau Béton L500', icon: '🧱' },
         };
 
         function updateUsedElementsDisplay() {
@@ -1256,10 +1429,13 @@
             
             displayList.innerHTML = '';
 
+            // Count by SPECIFIC element name (not generic type)
             const counts = {};
             window.trackedConstructionElements.forEach(elementObj => {
-                if (elementObj && elementObj.type) {
-                    counts[elementObj.type] = (counts[elementObj.type] || 0) + 1;
+                if (elementObj && elementObj.name) {
+                    // Use the specific name like "Linteau Béton L120"
+                    const key = elementObj.name;
+                    counts[key] = (counts[key] || 0) + 1;
                 }
             });
 
@@ -1268,27 +1444,49 @@
                 return;
             }
 
-            for (const type in counts) {
-                const info = elementDisplayInfo[type] || elementDisplayInfo['unknown'];
-                const count = counts[type];
+            for (const elementName in counts) {
+                // Use the specific element name to get display info
+                const info = elementDisplayInfo[elementName] || elementDisplayInfo['unknown'];
+                const count = counts[elementName];
+                
+                // Find the element data to get dimensions
+                const elementData = window.trackedConstructionElements.find(el => el.name === elementName);
+                const dims = elementData?.dims;
+                let dimText = '';
+                if (dims) {
+                    dimText = `${dims.x || '?'}×${dims.y || '?'}×${dims.z || '?'} cm`;
+                }
+                
                 const itemDiv = document.createElement('div');
                 itemDiv.style.cssText = `
                     padding: 8px; text-align: center; background: #f9f9f9; 
                     border: 1px solid #eee; border-radius: 4px; font-size: 11px;
                     display: flex; flex-direction: column; align-items: center; justify-content: center;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; min-height: 80px;
                 `;
+                itemDiv.setAttribute('data-elementname', elementName);
                 itemDiv.innerHTML = `
-                    <div style="font-size: 20px; margin-bottom: 2px;">${info.icon}</div>
-                    <div>${info.name}</div>
+                    <div style="font-size: 18px; margin-bottom: 4px;">${info.icon}</div>
+                    <div style="font-weight: bold; margin-bottom: 2px;">${info.name}</div>
+                    <div style="font-size: 9px; color: #666; margin-bottom: 2px;">${dimText}</div>
                     <div style="font-size: 10px; color: #777;">(x${count})</div>
                 `;
-                itemDiv.onmouseenter = function() { this.style.background = '#f0f0f0'; };
+                itemDiv.onmouseenter = function() { this.style.background = '#e8f4fd'; };
                 itemDiv.onmouseleave = function() { this.style.background = '#f9f9f9'; };
+                
+                // Click to insert the same element again
+                itemDiv.onclick = function() {
+                    if (window.app && window.app.uiManager && window.app.uiManager.insertElementByType) {
+                        window.app.uiManager.insertElementByType(elementName);
+                        console.log(`Insertion de l'élément: ${elementName}`);
+                    } else {
+                        console.warn('UIManager non disponible pour insérer l\'élément');
+                    }
+                };
+                
                 displayList.appendChild(itemDiv);
             }
         }
-        window.updateUsedElementsDisplay = updateUsedElementsDisplay;
 
         function addTrackedElementWithUUID(elementType, uuid) {
             if (elementType && uuid) {
@@ -1316,7 +1514,24 @@
                 window.app.scene.add = function(...objects) {
                     objects.forEach(obj => {
                         if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement && obj.userData.elementType) {
-                            addTrackedElementWithUUID(obj.userData.elementType, obj.uuid);
+                            // Correction : utiliser CSS.escape pour éviter les erreurs de sélecteur
+                            let wrapper3d = null;
+                            if (window.document && typeof CSS !== "undefined" && CSS.escape) {
+                                try {
+                                    const safeType = CSS.escape(obj.userData.elementType);
+                                    wrapper3d = document.querySelector(`.3d-wrapper[data-type="${safeType}"]`);
+                                } catch (e) {
+                                    wrapper3d = null;
+                                }
+                            }
+                            let preview = obj.userData.elementPreview || null;
+                            window.trackedConstructionElements.push({
+                                type: obj.userData.elementType,
+                                id: obj.uuid,
+                                preview: preview,
+                                wrapper3d: wrapper3d
+                            });
+                            updateUsedElementsDisplay();
                         }
                     });
                     return originalSceneAdd.apply(this, objects);
@@ -1326,7 +1541,8 @@
                 window.app.scene.remove = function(...objects) {
                     objects.forEach(obj => {
                         if (obj && obj.uuid && obj.userData && obj.userData.isConstructionElement) {
-                           removeTrackedElementByUUID(obj.uuid);
+                            window.trackedConstructionElements = window.trackedConstructionElements.filter(el => el.id !== obj.uuid);
+                            updateUsedElementsDisplay();
                         }
                     });
                     return originalSceneRemove.apply(this, objects);
@@ -1447,6 +1663,38 @@
             e.preventDefault();
             window.setElementsWhiteStyle();
         });
+        
+        // Gestion du menu Échelle de cotation (toujours actif même si ouvert par le panneau cotation)
+        function setupScaleMenuListeners() {
+            document.querySelectorAll('.scale-option').forEach(option => {
+                option.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const scale = parseFloat(option.dataset.scale);
+                    const scaleText = option.textContent;
+                    
+                    // Vérifier que l'application et les méthodes existent
+                    if (window.app && typeof window.app.setDimensionScale === 'function') {
+                        window.app.setDimensionScale(scale, scaleText);
+                        
+                        // Mettre à jour l'affichage visuel
+                        document.querySelectorAll('.scale-option').forEach(opt => opt.classList.remove('active'));
+                        option.classList.add('active');
+                    } else {
+                        console.warn('L\'application n\'est pas encore prête ou la méthode setDimensionScale n\'existe pas');
+                        setTimeout(() => {
+                            if (window.app && typeof window.app.setDimensionScale === 'function') {
+                                window.app.setDimensionScale(scale, scaleText);
+                                document.querySelectorAll('.scale-option').forEach(opt => opt.classList.remove('active'));
+                                option.classList.add('active');
+                            }
+                        }, 1000);
+                    }
+                });
+            });
+        }
+        setupScaleMenuListeners();
+        // Si le menu est réinjecté dynamiquement, réappliquer les listeners
+        window.setupScaleMenuListeners = setupScaleMenuListeners;
     });
     
     // Templates de mode opératoire

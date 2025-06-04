@@ -108,13 +108,14 @@ export class RectangleTool {
         const centerX = (p1.x + p2.x) / 2;
         const centerY = (p1.y + p2.y) / 2;
 
-        const geometry = new THREE.PlaneGeometry(width, height);
-        const material = new THREE.MeshPhongMaterial({
-            color: 0xffffff, // Default white
+        // Créer le matériau - utiliser MeshBasicMaterial pour un blanc pur
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.9
+            opacity: 0.95
         });
+        const geometry = new THREE.PlaneGeometry(width, height);
         const rectMesh = new THREE.Mesh(geometry, material);
         rectMesh.position.set(centerX, centerY, 0.01); // On workplane
         rectMesh.castShadow = true;

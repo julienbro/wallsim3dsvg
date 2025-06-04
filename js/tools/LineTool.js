@@ -74,6 +74,11 @@ export class LineTool {
         });
 
         const line = new THREE.Line(geometry, material);
+        line.userData.type = 'line';
+        line.renderOrder = 1;
+        // Les lignes ne projettent généralement pas d'ombres, mais on peut les faire recevoir des ombres
+        line.receiveShadow = true;
+
         this.app.scene.add(line);
         this.app.objects.push(line);
 

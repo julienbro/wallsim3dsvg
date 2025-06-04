@@ -71,12 +71,15 @@ export class CircleTool {
             return;
         }
 
+        // Créer la géométrie du cercle
         const geometry = new THREE.CircleGeometry(radius, 32);
-        const material = new THREE.MeshPhongMaterial({
-            color: 0xffffff, // Blanc par défaut
+        
+        // Créer le matériau du cercle rempli - blanc pur
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.9
+            opacity: 0.95
         });
         const circleMesh = new THREE.Mesh(geometry, material);
         circleMesh.position.copy(center);
@@ -85,8 +88,13 @@ export class CircleTool {
         circleMesh.receiveShadow = true;
         circleMesh.userData.type = 'circle';
 
+        // Créer le contour avec des lignes noires
+        const edgeMaterial = new THREE.LineBasicMaterial({ 
+            color: 0x000000,  // Noir
+            linewidth: 2 
+        });
         const edges = new THREE.EdgesGeometry(geometry);
-        const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+        const edgeLines = new THREE.LineSegments(edges, edgeMaterial);
         circleMesh.add(edgeLines);
 
         this.app.scene.add(circleMesh);

@@ -215,9 +215,6 @@
                                 <button class="tool-btn" id="sidebar-polyline" title="Polyligne">
                                     <i class="fas fa-draw-polygon"></i>
                                 </button>
-                                <button class="tool-btn" id="sidebar-arc" title="Arc">
-                                    <i class="fas fa-bezier-curve"></i>
-                                </button>
                                 <button class="tool-btn" id="sidebar-rect" title="Rectangle">
                                     <i class="fas fa-square"></i>
                                 </button>

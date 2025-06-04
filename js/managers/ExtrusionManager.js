@@ -77,10 +77,12 @@ export class ExtrusionManager {
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             // Utiliser MeshPhongMaterial pour supporter les ombres
             const material = new THREE.MeshPhongMaterial({
-                color: object.material.color.getHex(),
-                opacity: 0.7,
+                color: 0xffffff,
+                emissive: 0xffffff,
+                emissiveIntensity: 0.1,
+                side: THREE.DoubleSide,
                 transparent: true,
-                side: THREE.DoubleSide
+                opacity: 0.95
             });
             
             this.extrudePreview = new THREE.Mesh(geometry, material);
@@ -218,6 +220,14 @@ export class ExtrusionManager {
         this.extrudePreview.castShadow = true;
         this.extrudePreview.receiveShadow = true;
         
+        // S'assurer que tous les enfants peuvent aussi projeter/recevoir des ombres
+        this.extrudePreview.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+        
         this.app.objects.push(this.extrudePreview);
         
         // Vérifier que les layers existent avant d'y accéder
@@ -261,5 +271,19 @@ export class ExtrusionManager {
             
             document.getElementById('command-output').textContent = 'Extrusion annulée';
         }
+    }
+    
+    createExtrudedGeometry(shape, depth) {
+        // Utiliser MeshStandardMaterial avec des propriétés pour apparaître blanc
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.8,
+            metalness: 0.0,
+            emissive: 0xffffff,
+            emissiveIntensity: 0.15,
+            side: THREE.DoubleSide
+        });
+        
+        return new THREE.Mesh(geometry, material);
     }
 }

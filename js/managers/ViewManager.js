@@ -12,9 +12,22 @@ export class ViewManager {
         if (!this.app.is3DMode) {
             this.setView('top');
             this.app.controls.enableRotate = false;
+            this.app.controls.enabled = false;
+            // Désactive visuellement le bouton orbite
+            const orbitBtn = document.getElementById('toolbar-view-orbit');
+            if (orbitBtn) orbitBtn.classList.remove('active');
         } else {
             this.app.controls.enableRotate = true;
             this.setView('iso');
+            // Réactive le bouton orbite (état selon controls.enabled)
+            const orbitBtn = document.getElementById('toolbar-view-orbit');
+            if (orbitBtn) {
+                if (this.app.controls.enabled) {
+                    orbitBtn.classList.add('active');
+                } else {
+                    orbitBtn.classList.remove('active');
+                }
+            }
         }
     }
     

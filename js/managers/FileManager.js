@@ -75,6 +75,190 @@ export class FileManager {
         document.getElementById('command-output').textContent = 'Projet exporté';
     }
 
+    async importColladaFile() {
+        // Créer un input file element
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.dae,.xml';
+        input.style.display = 'none';
+
+        return new Promise((resolve, reject) => {
+            input.onchange = async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    reject(new Error('Aucun fichier sélectionné'));
+                    return;
+                }
+
+                try {
+                    document.getElementById('command-output').textContent = 'Chargement du fichier COLLADA...';
+                    
+                    // Charger le loader COLLADA dynamiquement
+                    const { ColladaLoader } = await import('three/addons/loaders/ColladaLoader.js');
+                    
+                    const loader = new ColladaLoader();
+                    
+                    // Convertir le fichier en URL pour le loader
+                    const fileUrl = URL.createObjectURL(file);
+                    
+                    loader.load(fileUrl, (collada) => {
+                        try {
+                            this.processColladaScene(collada);
+                            URL.revokeObjectURL(fileUrl); // Nettoyer l'URL temporaire
+                            document.getElementById('command-output').textContent = `Fichier COLLADA "${file.name}" importé avec succès`;
+                            resolve(collada);
+                        } catch (error) {
+                            console.error('Erreur lors du traitement du fichier COLLADA:', error);
+                            document.getElementById('command-output').textContent = 'Erreur lors du traitement du fichier COLLADA';
+                            reject(error);
+                        }
+                    }, 
+                    (progress) => {
+                        // Progression du chargement
+                        const percent = (progress.loaded / progress.total * 100).toFixed(1);
+                        document.getElementById('command-output').textContent = `Chargement: ${percent}%`;
+                    },
+                    (error) => {
+                        console.error('Erreur lors du chargement du fichier COLLADA:', error);
+                        document.getElementById('command-output').textContent = 'Erreur lors du chargement du fichier COLLADA';
+                        URL.revokeObjectURL(fileUrl);
+                        reject(error);
+                    });
+                } catch (error) {
+                    console.error('Erreur lors de l\'initialisation du loader COLLADA:', error);
+                    document.getElementById('command-output').textContent = 'Erreur: Loader COLLADA non disponible';
+                    reject(error);
+                }
+            };
+
+            input.onerror = () => {
+                reject(new Error('Erreur lors de la sélection du fichier'));
+            };
+
+            document.body.appendChild(input);
+            input.click();
+            document.body.removeChild(input);
+        });
+    }
+
+    processColladaScene(collada) {
+        const scene = collada.scene;
+        
+        if (!scene) {
+            console.error('COLLADA scene data is empty or invalid.');
+            document.getElementById('command-output').textContent = 'Erreur: Données COLLADA invalides.';
+            return;
+        }
+
+        console.log('Traitement de la scène COLLADA:', scene);
+
+        // Réinitialiser les transformations pour éviter toute rotation ou échelle appliquée par le loader
+        scene.rotation.set(0, 0, 0);
+        scene.scale.set(1, 1, 1);
+
+        // Placer l'objet importé à l'origine (0, 0, 0)
+        scene.position.set(0, 0, 0);
+
+        console.log('Objet importé placé à l\'origine:', scene.position);
+
+        // Ajuster l'échelle pour que le modèle soit visible
+        const box = new THREE.Box3().setFromObject(scene);
+        const size = box.getSize(new THREE.Vector3());
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        
+        if (maxDimension > 0) {
+            const desiredSize = 50; // Taille souhaitée pour la plus grande dimension
+            const scale = desiredSize / maxDimension;
+            scene.scale.set(scale, scale, scale);
+            console.log(`Modèle mis à l'échelle par: ${scale.toFixed(2)} (Dimension max originale: ${maxDimension.toFixed(2)})`);
+        } else {
+            console.warn('Les dimensions du modèle sont nulles ou invalides. Il pourrait être invisible.');
+        }
+
+        this.forceVisibleMaterials(scene);
+        
+        this.app.scene.add(scene);
+        
+        if (typeof this.app.addObject === 'function') {
+             this.app.addObject(scene);
+        } else if (this.app.objects && Array.isArray(this.app.objects)) {
+             this.app.objects.push(scene);
+        } else {
+            console.error("Impossible d'ajouter la scène importée au système de suivi des objets de l'application lors du traitement normal.");
+        }
+
+        this.app.selectObject(scene); 
+    }
+
+    forceVisibleMaterials(object) {
+        const testColor = 0xff00ff; // Magenta for a clear visual test
+
+        object.traverse((child) => {
+            if (child.isMesh) {
+                console.log(`Processing mesh for material replacement: ${child.name || child.uuid}`);
+                
+                if (child.geometry) {
+                    console.log(`  Mesh geometry: ${child.geometry.type}, Vertices: ${child.geometry.attributes.position ? child.geometry.attributes.position.count : 'N/A'}`);
+                    if (child.geometry.attributes.color) {
+                        child.geometry.deleteAttribute('color');
+                        console.log(`  Vertex colors removed from geometry of ${child.name || child.uuid}`);
+                    }
+                    if (!child.geometry.attributes.normal) {
+                        console.log(`  Geometry for ${child.name || child.uuid} is missing normals. Attempting to compute.`);
+                        child.geometry.computeVertexNormals();
+                    } else {
+                        console.log(`  Geometry for ${child.name || child.uuid} has normals. Recomputing for consistency.`);
+                        child.geometry.computeVertexNormals(); // Recompute even if they exist, for consistency
+                    }
+                    if (child.geometry.attributes.normal) {
+                        console.log(`  Normals are now present/recomputed for ${child.name || child.uuid}.`);
+                    } else {
+                        console.warn(`  Failed to compute normals for ${child.name || child.uuid}.`);
+                    }
+                } else {
+                    console.warn(`  Mesh ${child.name || child.uuid} has no geometry.`);
+                }
+                
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(mat => {
+                            if (mat && mat.dispose) mat.dispose();
+                        });
+                    } else {
+                        if (child.material.dispose) child.material.dispose();
+                    }
+                    console.log(`  Old material(s) disposed for ${child.name || child.uuid}`);
+                }
+                
+                const newMaterial = new THREE.MeshStandardMaterial({
+                    color: testColor, 
+                    roughness: 0.5, 
+                    metalness: 0.1, 
+                    side: THREE.DoubleSide,
+                    vertexColors: false, 
+                    map: null, 
+                    transparent: false,
+                    opacity: 1.0,
+                    // flatShading: true, // Uncomment for testing if normals are the issue
+                });
+                
+                child.material = newMaterial;
+                child.material.needsUpdate = true; 
+                
+                child.visible = true;
+                child.castShadow = true;
+                child.receiveShadow = true;
+                child.renderOrder = 0; 
+
+                child.userData.isImported = true; 
+                
+                console.log(`  New MeshStandardMaterial (TEST MAGENTA) applied to ${child.name || child.uuid}. Color: #${child.material.color.getHexString()}`);
+            } else if (child.isLight) {
+                // console.log(`  Found light in DAE: ${child.name || child.type}. Keeping it for now.`);
+            }
+        });
+    }
+
     async exportViewToPDF() {
         console.log('Export PDF complet lancé');
         const totalPages = 7; 
