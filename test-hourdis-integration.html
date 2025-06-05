@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test - Intégration Hourdis Longueur Personnalisée</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .test-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 300px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        
+        .test-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        .test-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .test-info { background: #cce5ff; color: #0066cc; border: 1px solid #99ccff; }
+        .test-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        
+        .test-step {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .test-step.completed {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        
+        .test-step.failed {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Interface principale de l'application -->
+    </div>
+    
+    <div class="test-panel">
+        <h3>Test d'Intégration - Hourdis</h3>
+        <div id="test-status" class="test-status test-info">
+            Initialisation du test...
+        </div>
+        
+        <div class="test-steps">
+            <div id="step-1" class="test-step">1. Chargement ElementsLibrary</div>
+            <div id="step-2" class="test-step">2. Vérification configuration Hourdis</div>
+            <div id="step-3" class="test-step">3. Test interface options</div>
+            <div id="step-4" class="test-step">4. Test ajout avec longueur personnalisée</div>
+            <div id="step-5" class="test-step">5. Validation scaling</div>
+        </div>
+        
+        <button onclick="runIntegrationTest()">Démarrer le test</button>
+        <button onclick="testSpecificLength()">Test longueur spécifique</button>
+        
+        <div id="test-results" style="margin-top: 15px;">
+            <h4>Résultats:</h4>
+            <div id="results-content">Aucun test effectué</div>
+        </div>
+    </div>
+
+    <!-- Scripts de l'application -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="js/loaders/GLTFLoader.js"></script>
+    <script src="js/managers/ElementsLibrary.js"></script>
+    <script src="js/managers/UIManager.js"></script>
+    <script src="js/WebCAD.js"></script>
+    
+    <script>
+        let testResults = [];
+        let webCAD, elementsLibrary, uiManager;
+        
+        function updateTestStatus(message, type = 'info') {
+            const status = document.getElementById('test-status');
+            status.textContent = message;
+            status.className = `test-status test-${type}`;
+        }
+        
+        function markStepCompleted(stepId, success = true) {
+            const step = document.getElementById(stepId);
+            step.className = `test-step ${success ? 'completed' : 'failed'}`;
+        }
+        
+        function addTestResult(test, success, details = '') {
+            testResults.push({ test, success, details, timestamp: new Date() });
+            updateResultsDisplay();
+        }
+        
+        function updateResultsDisplay() {
+            const content = document.getElementById('results-content');
+            if (testResults.length === 0) {
+                content.textContent = 'Aucun test effectué';
+                return;
+            }
+            
+            content.innerHTML = testResults.map(result => 
+                `<div style="margin: 5px 0; padding: 5px; background: ${result.success ? '#d4edda' : '#f8d7da'}; border-radius: 3px;">
+                    <strong>${result.test}:</strong> ${result.success ? '✓ Réussi' : '✗ Échec'}
+                    ${result.details ? `<br><small>${result.details}</small>` : ''}
+                </div>`
+            ).join('');
+        }
+        
+        async function runIntegrationTest() {
+            updateTestStatus('Démarrage du test d\'intégration...', 'info');
+            testResults = [];
+            
+            try {
+                // Step 1: Chargement ElementsLibrary
+                updateTestStatus('Étape 1: Chargement ElementsLibrary', 'info');
+                
+                elementsLibrary = new ElementsLibrary();
+                await elementsLibrary.init();
+                
+                markStepCompleted('step-1', true);
+                addTestResult('Chargement ElementsLibrary', true, 'Bibliothèque initialisée avec succès');
+                
+                // Step 2: Vérification configuration Hourdis
+                updateTestStatus('Étape 2: Vérification configuration Hourdis', 'info');
+                
+                const hourdisConfig = elementsLibrary.getElement('Hourdis 60+13', 'planchers');
+                if (hourdisConfig && hourdisConfig.customLength) {
+                    markStepCompleted('step-2', true);
+                    addTestResult('Configuration Hourdis', true, 'customLength: true trouvé');
+                } else {
+                    markStepCompleted('step-2', false);
+                    addTestResult('Configuration Hourdis', false, 'customLength manquant ou élément non trouvé');
+                    throw new Error('Configuration Hourdis incorrecte');
+                }
+                
+                // Step 3: Test interface options
+                updateTestStatus('Étape 3: Test interface options', 'info');
+                
+                // Créer un UIManager de test
+                uiManager = new UIManager();
+                
+                // Simuler la sélection de l'élément Hourdis
+                const testElement = { ...hourdisConfig, name: 'Hourdis 60+13' };
+                
+                // Test de showElementOptions (nous vérifions que la méthode existe et peut être appelée)
+                if (typeof uiManager.showElementOptions === 'function') {
+                    markStepCompleted('step-3', true);
+                    addTestResult('Interface options', true, 'Méthode showElementOptions disponible');
+                } else {
+                    markStepCompleted('step-3', false);
+                    addTestResult('Interface options', false, 'Méthode showElementOptions manquante');
+                    throw new Error('Méthode showElementOptions manquante');
+                }
+                
+                // Step 4: Test ajout avec longueur personnalisée
+                updateTestStatus('Étape 4: Test ajout avec longueur personnalisée', 'info');
+                
+                // Créer un environnement 3D de test
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({ canvas: document.createElement('canvas') });
+                
+                // Simuler l'ajout d'un élément avec longueur personnalisée
+                const customElement = {
+                    ...testElement,
+                    dims: { x: 60, y: 100, z: 13 } // Longueur personnalisée de 100cm
+                };
+                
+                try {
+                    // Test du chargement du modèle
+                    const model = await elementsLibrary.loadModel('Hourdis 60+13', 'planchers');
+                    if (model) {
+                        markStepCompleted('step-4', true);
+                        addTestResult('Ajout élément', true, 'Modèle chargé avec succès');
+                        
+                        // Step 5: Validation scaling
+                        updateTestStatus('Étape 5: Validation scaling', 'info');
+                        
+                        // Test du scaling
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3());
+                        
+                        const scaleY = customElement.dims.y / size.y;
+                        model.scale.y = scaleY;
+                        
+                        // Vérifier que le scaling a été appliqué
+                        const newBox = new THREE.Box3().setFromObject(model);
+                        const newSize = newBox.getSize(new THREE.Vector3());
+                        
+                        const scalingWorked = Math.abs(newSize.y - customElement.dims.y) < 1; // tolérance de 1 unité
+                        
+                        if (scalingWorked) {
+                            markStepCompleted('step-5', true);
+                            addTestResult('Validation scaling', true, `Taille Y: ${newSize.y.toFixed(2)} ≈ ${customElement.dims.y}`);
+                        } else {
+                            markStepCompleted('step-5', false);
+                            addTestResult('Validation scaling', false, `Taille Y: ${newSize.y.toFixed(2)} ≠ ${customElement.dims.y}`);
+                        }
+                    } else {
+                        throw new Error('Modèle non chargé');
+                    }
+                } catch (error) {
+                    markStepCompleted('step-4', false);
+                    markStepCompleted('step-5', false);
+                    addTestResult('Ajout élément', false, error.message);
+                    throw error;
+                }
+                
+                updateTestStatus('Test d\'intégration terminé avec succès!', 'success');
+                
+            } catch (error) {
+                console.error('Erreur lors du test:', error);
+                updateTestStatus(`Test échoué: ${error.message}`, 'error');
+                addTestResult('Test global', false, error.message);
+            }
+        }
+        
+        async function testSpecificLength() {
+            const customLength = prompt('Entrez la longueur personnalisée (cm):', '50');
+            if (!customLength) return;
+            
+            const length = parseFloat(customLength);
+            if (isNaN(length) || length < 10 || length > 500) {
+                alert('Longueur invalide (doit être entre 10 and 500 cm)');
+                return;
+            }
+            
+            updateTestStatus(`Test avec longueur: ${length} cm`, 'info');
+            
+            try {
+                if (!elementsLibrary) {
+                    elementsLibrary = new ElementsLibrary();
+                    await elementsLibrary.init();
+                }
+                
+                const model = await elementsLibrary.loadModel('Hourdis 60+13', 'planchers');
+                if (model) {
+                    const box = new THREE.Box3().setFromObject(model);
+                    const size = box.getSize(new THREE.Vector3());
+                    
+                    const scaleY = length / size.y;
+                    model.scale.y = scaleY;
+                    
+                    const newBox = new THREE.Box3().setFromObject(model);
+                    const newSize = newBox.getSize(new THREE.Vector3());
+                    
+                    addTestResult(`Test longueur ${length}cm`, true, 
+                        `Original: ${size.y.toFixed(2)}cm → Nouveau: ${newSize.y.toFixed(2)}cm (scale: ${scaleY.toFixed(3)})`);
+                    
+                    updateTestStatus(`Test réussi: ${length}cm → ${newSize.y.toFixed(2)}cm`, 'success');
+                } else {
+                    throw new Error('Impossible de charger le modèle');
+                }
+            } catch (error) {
+                addTestResult(`Test longueur ${length}cm`, false, error.message);
+                updateTestStatus(`Test échoué: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-démarrage du test au chargement
+        window.addEventListener('load', () => {
+            setTimeout(runIntegrationTest, 1000);
+        });
+    </script>
+</body>
+</html>

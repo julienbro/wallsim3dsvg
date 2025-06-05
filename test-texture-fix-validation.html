@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Fix Texture/Color Application</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #2a2a2a;
+            color: white;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .controls {
+            width: 300px;
+            background: #3a3a3a;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .test-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background: #0066ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .test-btn:hover {
+            background: #0052cc;
+        }
+        
+        .test-btn.success {
+            background: #28a745;
+        }
+        
+        .test-btn.error {
+            background: #dc3545;
+        }
+        
+        #log {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-warning { color: #ffc107; }
+        .log-info { color: #17a2b8; }
+        
+        #viewport {
+            flex: 1;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #1a1a1a;
+        }
+        
+        .status {
+            background: #444;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <h3>Test de Correction des Textures/Couleurs</h3>
+            
+            <div class="status" id="status">Initialisation...</div>
+            
+            <h4>Tests Séquentiels</h4>
+            <button class="test-btn" onclick="runSequentialTest()">🧪 Lancer Test Complet</button>
+            
+            <h4>Tests Manuels</h4>
+            <button class="test-btn" onclick="initWebCAD()">1. Initialiser WebCAD</button>
+            <button class="test-btn" onclick="addTestObject()">2. Ajouter Objet Test</button>
+            <button class="test-btn" onclick="testSelectionMode()">3. Test Sélection</button>
+            <button class="test-btn" onclick="testTextureMode()">4. Test Mode Texture</button>
+            <button class="test-btn" onclick="testColorMode()">5. Test Mode Couleur</button>
+            <button class="test-btn" onclick="clearAll()">🗑️ Nettoyer</button>
+            
+            <div id="log"></div>
+        </div>
+        
+        <div id="viewport" style="width: 100%; height: 600px;"></div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.156.1/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.156.1/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import { WebCAD } from './js/core/WebCAD.js';
+        
+        let app = null;
+        let testObject = null;
+        
+        function setStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+        
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `log-${type}`;
+            div.textContent = `[${timestamp}] ${message}`;
+            logElement.appendChild(div);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        window.initWebCAD = async function() {
+            try {
+                log('Initialisation de WebCAD...', 'info');
+                app = new WebCAD('viewport');
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Attendre l'initialisation
+                
+                if (app.scene && app.renderer && app.camera) {
+                    log('✅ WebCAD initialisé avec succès', 'success');
+                    setStatus('WebCAD initialisé', 'success');
+                    return true;
+                } else {
+                    throw new Error('Composants manquants dans WebCAD');
+                }
+            } catch (error) {
+                log(`❌ Erreur initialisation: ${error.message}`, 'error');
+                setStatus('Erreur initialisation', 'error');
+                return false;
+            }
+        };
+        
+        window.addTestObject = function() {
+            if (!app) {
+                log('❌ WebCAD non initialisé', 'error');
+                return false;
+            }
+            
+            try {
+                // Créer un cube test
+                const geometry = new app.THREE.BoxGeometry(20, 20, 20);
+                const material = new app.THREE.MeshPhongMaterial({ color: 0x00ff00 });
+                testObject = new app.THREE.Mesh(geometry, material);
+                testObject.position.set(0, 0, 10);
+                testObject.castShadow = true;
+                testObject.receiveShadow = true;
+                
+                app.scene.add(testObject);
+                app.objects.push(testObject);
+                
+                log('✅ Objet test ajouté (cube vert)', 'success');
+                setStatus('Objet test ajouté', 'success');
+                return true;
+            } catch (error) {
+                log(`❌ Erreur ajout objet: ${error.message}`, 'error');
+                return false;
+            }
+        };
+        
+        window.testSelectionMode = function() {
+            if (!app || !testObject) {
+                log('❌ WebCAD ou objet test manquant', 'error');
+                return false;
+            }
+            
+            try {
+                // Vérifier que le mode texture est désactivé
+                app.textureApplyMode = false;
+                app.selectedTexture = null;
+                
+                // Simuler un clic sur l'objet pour tester la sélection
+                if (app.selectionManager && typeof app.selectionManager.selectObject === 'function') {
+                    app.selectionManager.selectObject(testObject);
+                    log('✅ Sélection fonctionne', 'success');
+                    setStatus('Sélection OK', 'success');
+                    return true;
+                } else {
+                    throw new Error('SelectionManager non disponible');
+                }
+            } catch (error) {
+                log(`❌ Erreur test sélection: ${error.message}`, 'error');
+                return false;
+            }
+        };
+        
+        window.testTextureMode = function() {
+            if (!app || !testObject) {
+                log('❌ WebCAD ou objet test manquant', 'error');
+                return false;
+            }
+            
+            try {
+                log('Test mode texture...', 'info');
+                
+                // Activer le mode texture
+                app.textureApplyMode = true;
+                app.selectedTexture = {
+                    name: 'Test Texture',
+                    url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+                };
+                app.selectedTextureType = 'texture';
+                
+                // Vérifier que les méthodes existent
+                if (typeof app.applyTextureToObject !== 'function') {
+                    throw new Error('Méthode applyTextureToObject manquante');
+                }
+                
+                log('✅ Mode texture activé', 'success');
+                log('🎯 Cliquez sur le cube pour appliquer la texture', 'warning');
+                setStatus('Mode texture actif - cliquez sur le cube', 'warning');
+                return true;
+            } catch (error) {
+                log(`❌ Erreur mode texture: ${error.message}`, 'error');
+                return false;
+            }
+        };
+        
+        window.testColorMode = function() {
+            if (!app || !testObject) {
+                log('❌ WebCAD ou objet test manquant', 'error');
+                return false;
+            }
+            
+            try {
+                log('Test mode couleur...', 'info');
+                
+                // Activer le mode couleur
+                app.textureApplyMode = true;
+                app.selectedTexture = {
+                    name: 'Rouge Test',
+                    hex: '#ff0000'
+                };
+                app.selectedTextureType = 'color';
+                
+                // Vérifier que les méthodes existent
+                if (typeof app.applyColorToObject !== 'function') {
+                    throw new Error('Méthode applyColorToObject manquante');
+                }
+                
+                log('✅ Mode couleur activé', 'success');
+                log('🎯 Cliquez sur le cube pour appliquer la couleur rouge', 'warning');
+                setStatus('Mode couleur actif - cliquez sur le cube', 'warning');
+                return true;
+            } catch (error) {
+                log(`❌ Erreur mode couleur: ${error.message}`, 'error');
+                return false;
+            }
+        };
+        
+        window.clearAll = function() {
+            if (app) {
+                if (testObject) {
+                    app.scene.remove(testObject);
+                    app.objects = app.objects.filter(obj => obj !== testObject);
+                    testObject = null;
+                }
+                app.textureApplyMode = false;
+                app.selectedTexture = null;
+                app.selectedTextureType = null;
+            }
+            
+            document.getElementById('log').innerHTML = '';
+            log('🗑️ Nettoyage effectué', 'info');
+            setStatus('Nettoyé', 'info');
+        };
+        
+        window.runSequentialTest = async function() {
+            log('🚀 Démarrage test séquentiel complet...', 'info');
+            setStatus('Test en cours...', 'warning');
+            
+            try {
+                // Test 1: Initialisation
+                if (!await window.initWebCAD()) {
+                    throw new Error('Échec initialisation WebCAD');
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Test 2: Ajout objet
+                if (!window.addTestObject()) {
+                    throw new Error('Échec ajout objet test');
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Test 3: Sélection
+                if (!window.testSelectionMode()) {
+                    throw new Error('Échec test sélection');
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Test 4: Mode texture
+                if (!window.testTextureMode()) {
+                    throw new Error('Échec activation mode texture');
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Test 5: Mode couleur
+                if (!window.testColorMode()) {
+                    throw new Error('Échec activation mode couleur');
+                }
+                
+                log('🎉 TOUS LES TESTS PASSÉS AVEC SUCCÈS!', 'success');
+                log('🎯 Vous pouvez maintenant cliquer sur le cube pour tester l\'application de couleur', 'warning');
+                setStatus('✅ Tests réussis - Testez manuellement', 'success');
+                
+            } catch (error) {
+                log(`❌ ÉCHEC TEST SÉQUENTIEL: ${error.message}`, 'error');
+                setStatus(`❌ Échec: ${error.message}`, 'error');
+            }
+        };
+        
+        // Auto-initialisation si demandée
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🔧 Test de correction prêt', 'info');
+            setStatus('Prêt pour les tests', 'info');
+        });
+    </script>
+</body>
+</html>

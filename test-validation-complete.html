@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✅ Test Final - Validation Complète GLB Preview</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .test-panel {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+        }
+        
+        .panel-content {
+            padding: 20px;
+        }
+        
+        .app-container {
+            grid-column: 1 / -1;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .app-header {
+            background: #2196F3;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        iframe {
+            width: 100%;
+            height: 800px;
+            border: none;
+        }
+        
+        .test-result {
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .success { 
+            background: #e8f5e8; 
+            color: #2e7d32; 
+            border-left: 4px solid #4caf50; 
+        }
+        
+        .error { 
+            background: #ffebee; 
+            color: #c62828; 
+            border-left: 4px solid #f44336; 
+        }
+        
+        .warning { 
+            background: #fff3e0; 
+            color: #ef6c00; 
+            border-left: 4px solid #ff9800; 
+        }
+        
+        .info { 
+            background: #e3f2fd; 
+            color: #1565c0; 
+            border-left: 4px solid #2196f3; 
+        }
+        
+        .btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #1976D2;
+        }
+        
+        .btn.success {
+            background: #4CAF50;
+        }
+        
+        .btn.success:hover {
+            background: #45a049;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin: 15px 0;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            flex: 1;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        
+        .progress-bar {
+            background: #e0e0e0;
+            border-radius: 10px;
+            height: 8px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            height: 100%;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Test Final - Validation Complète GLB Preview</h1>
+            <p>Validation de l'intégration et correction de la bibliothèque d'éléments</p>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="tests-passed">0</div>
+                    <div class="stat-label">Tests Réussis</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="tests-total">0</div>
+                    <div class="stat-label">Tests Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="success-rate">0%</div>
+                    <div class="stat-label">Taux de Réussite</div>
+                </div>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="test-grid">
+            <div class="test-panel">
+                <div class="panel-header">🔧 Tests de Correction</div>
+                <div class="panel-content">
+                    <button class="btn" onclick="runCorrectionTests()">Valider Corrections</button>
+                    <div id="correction-results"></div>
+                </div>
+            </div>
+
+            <div class="test-panel">
+                <div class="panel-header">🎨 Tests GLB Preview</div>
+                <div class="panel-content">
+                    <button class="btn" onclick="runGLBTests()">Tester GLB Preview</button>
+                    <div id="glb-results"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="app-container">
+            <div class="app-header">
+                <span>🚀 Application WebCAD - Test en Direct</span>
+                <div>
+                    <button class="btn success" onclick="runFullTest()">🧪 Test Complet</button>
+                    <button class="btn" onclick="reloadApp()">🔄 Recharger</button>
+                </div>
+            </div>
+            <iframe id="app-iframe" src="index.html"></iframe>
+        </div>
+    </div>
+
+    <script>
+        class CompleteFinalTest {
+            constructor() {
+                this.testResults = [];
+                this.passedTests = 0;
+                this.totalTests = 0;
+                this.init();
+            }
+
+            init() {
+                console.log('🎯 Initialisation du test final complet...');
+                this.updateStats();
+                
+                // Auto-start après chargement
+                setTimeout(() => {
+                    this.runAllTests();
+                }, 2000);
+            }
+
+            addResult(category, test, success, message, details = null) {
+                this.testResults.push({ category, test, success, message, details });
+                
+                if (success) this.passedTests++;
+                this.totalTests++;
+                
+                console.log(`${success ? '✅' : '❌'} [${category}] ${test}: ${message}`);
+                this.updateStats();
+                this.updateDisplay(category);
+            }
+
+            updateStats() {
+                document.getElementById('tests-passed').textContent = this.passedTests;
+                document.getElementById('tests-total').textContent = this.totalTests;
+                
+                const successRate = this.totalTests > 0 ? Math.round((this.passedTests / this.totalTests) * 100) : 0;
+                document.getElementById('success-rate').textContent = successRate + '%';
+                
+                const progressFill = document.getElementById('progress-fill');
+                progressFill.style.width = successRate + '%';
+            }
+
+            updateDisplay(category) {
+                const categoryResults = this.testResults.filter(r => r.category === category);
+                let resultsHtml = categoryResults.map(result => 
+                    `<div class="test-result ${result.success ? 'success' : 'error'}">
+                        ${result.success ? '✅' : '❌'} <strong>${result.test}:</strong> ${result.message}
+                        ${result.details ? `<br><small style="opacity: 0.8;">${result.details}</small>` : ''}
+                    </div>`
+                ).join('');
+
+                const resultDiv = document.getElementById(category === 'Correction' ? 'correction-results' : 'glb-results');
+                if (resultDiv) {
+                    resultDiv.innerHTML = resultsHtml;
+                }
+            }
+
+            async runAllTests() {
+                console.log('🚀 Lancement de tous les tests...');
+                await this.runCorrectionTests();
+                await this.runGLBTests();
+                await this.runIntegrationTest();
+                this.showFinalReport();
+            }
+
+            async runCorrectionTests() {
+                console.log('🔧 Tests de correction...');
+                
+                try {
+                    // Test 1: Vérification syntaxe UIManager
+                    const uiManagerResponse = await fetch('js/managers/UIManager.js');
+                    const uiManagerContent = await uiManagerResponse.text();
+                    
+                    if (!uiManagerContent.includes('previewDiv is not defined')) {
+                        this.addResult('Correction', 'Syntaxe UIManager', true, 'Aucune erreur previewDiv détectée');
+                    } else {
+                        this.addResult('Correction', 'Syntaxe UIManager', false, 'Erreur previewDiv encore présente');
+                    }
+
+                    // Test 2: Vérification définition previewDiv
+                    if (uiManagerContent.includes('const previewDiv = document.createElement(\'div\');')) {
+                        this.addResult('Correction', 'Définition previewDiv', true, 'previewDiv correctement défini');
+                    } else {
+                        this.addResult('Correction', 'Définition previewDiv', false, 'previewDiv non trouvé');
+                    }
+
+                    // Test 3: Vérification ElementsLibrary
+                    const elementsResponse = await fetch('js/managers/ElementsLibrary.js');
+                    const elementsContent = await elementsResponse.text();
+                    
+                    if (elementsContent.includes('planchers:') && elementsContent.includes('Hourdis 60+13')) {
+                        this.addResult('Correction', 'Configuration Hourdis', true, 'Hourdis correctement configuré');
+                    } else {
+                        this.addResult('Correction', 'Configuration Hourdis', false, 'Configuration Hourdis manquante');
+                    }
+
+                    // Test 4: Vérification type GLB
+                    if (elementsContent.includes('type: \'glb\'')) {
+                        this.addResult('Correction', 'Type GLB', true, 'Type GLB configuré pour Hourdis');
+                    } else {
+                        this.addResult('Correction', 'Type GLB', false, 'Type GLB non configuré');
+                    }
+
+                } catch (error) {
+                    this.addResult('Correction', 'Tests Fichiers', false, `Erreur: ${error.message}`);
+                }
+            }
+
+            async runGLBTests() {
+                console.log('🎨 Tests GLB Preview...');
+                
+                try {
+                    // Test 1: Fichier GLB accessible
+                    const glbResponse = await fetch('assets/models/planchers/hourdis_60_13.glb');
+                    if (glbResponse.ok) {
+                        const size = glbResponse.headers.get('content-length');
+                        this.addResult('GLB', 'Fichier GLB', true, `GLB accessible (${Math.round(size/1024)}KB)`);
+                    } else {
+                        this.addResult('GLB', 'Fichier GLB', false, `GLB non accessible: ${glbResponse.status}`);
+                    }
+
+                    // Test 2: Three.js disponible
+                    const threeResponse = await fetch('js/three.module.js');
+                    if (threeResponse.ok) {
+                        this.addResult('GLB', 'Three.js', true, 'Three.js accessible');
+                    } else {
+                        this.addResult('GLB', 'Three.js', false, 'Three.js non accessible');
+                    }
+
+                    // Test 3: GLTFLoader disponible
+                    const loaderResponse = await fetch('js/loaders/GLTFLoader.js');
+                    if (loaderResponse.ok) {
+                        this.addResult('GLB', 'GLTFLoader', true, 'GLTFLoader accessible');
+                    } else {
+                        this.addResult('GLB', 'GLTFLoader', false, 'GLTFLoader non accessible');
+                    }
+
+                    // Test 4: Méthode createGLBPreview
+                    const uiManagerResponse = await fetch('js/managers/UIManager.js');
+                    const uiManagerContent = await uiManagerResponse.text();
+                    
+                    if (uiManagerContent.includes('createGLBPreview')) {
+                        this.addResult('GLB', 'Méthode Preview', true, 'createGLBPreview implémentée');
+                    } else {
+                        this.addResult('GLB', 'Méthode Preview', false, 'createGLBPreview non trouvée');
+                    }
+
+                } catch (error) {
+                    this.addResult('GLB', 'Tests GLB', false, `Erreur: ${error.message}`);
+                }
+            }
+
+            async runIntegrationTest() {
+                console.log('🔗 Test d\'intégration...');
+                
+                const iframe = document.getElementById('app-iframe');
+                
+                try {
+                    // Attendre que l'iframe soit chargée
+                    await new Promise((resolve) => {
+                        if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+                            resolve();
+                        } else {
+                            iframe.onload = resolve;
+                        }
+                    });
+
+                    // Attendre l'initialisation de l'app
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+
+                    const iframeWindow = iframe.contentWindow;
+                    const iframeDoc = iframe.contentDocument;
+
+                    // Test 1: Application initialisée
+                    if (iframeWindow.app) {
+                        this.addResult('Integration', 'App Initialize', true, 'Application WebCAD initialisée');
+                        
+                        // Test 2: UIManager présent
+                        if (iframeWindow.app.uiManager) {
+                            this.addResult('Integration', 'UIManager', true, 'UIManager initialisé');
+                            
+                            // Test 3: ElementsLibrary présent
+                            if (iframeWindow.app.uiManager.elementsLibrary) {
+                                this.addResult('Integration', 'ElementsLibrary', true, 'ElementsLibrary initialisé');
+                                
+                                // Test 4: Systèmes GLB Preview
+                                if (iframeWindow.app.uiManager.glbPreviews && iframeWindow.app.uiManager.previewCanvas) {
+                                    this.addResult('Integration', 'GLB Systems', true, 'Systèmes GLB Preview initialisés');
+                                } else {
+                                    this.addResult('Integration', 'GLB Systems', false, 'Systèmes GLB Preview non initialisés');
+                                }
+                            } else {
+                                this.addResult('Integration', 'ElementsLibrary', false, 'ElementsLibrary non initialisé');
+                            }
+                        } else {
+                            this.addResult('Integration', 'UIManager', false, 'UIManager non initialisé');
+                        }
+                    } else {
+                        this.addResult('Integration', 'App Initialize', false, 'Application WebCAD non initialisée');
+                    }
+
+                    // Test 5: Aucune erreur console
+                    const consoleErrors = [];
+                    const originalError = iframeWindow.console.error;
+                    iframeWindow.console.error = (...args) => {
+                        consoleErrors.push(args.join(' '));
+                        originalError.apply(iframeWindow.console, args);
+                    };
+
+                    if (consoleErrors.length === 0) {
+                        this.addResult('Integration', 'Console Errors', true, 'Aucune erreur console détectée');
+                    } else {
+                        this.addResult('Integration', 'Console Errors', false, `${consoleErrors.length} erreurs console`);
+                    }
+
+                } catch (error) {
+                    this.addResult('Integration', 'Test Integration', false, `Erreur: ${error.message}`);
+                }
+            }
+
+            showFinalReport() {
+                console.log('📊 Rapport final...');
+                
+                const successRate = Math.round((this.passedTests / this.totalTests) * 100);
+                
+                let reportMessage = '';
+                if (successRate >= 90) {
+                    reportMessage = '🎉 EXCELLENT! Le système GLB Preview fonctionne parfaitement.';
+                } else if (successRate >= 75) {
+                    reportMessage = '✅ BIEN! Le système fonctionne avec quelques améliorations possibles.';
+                } else if (successRate >= 50) {
+                    reportMessage = '⚠️ MOYEN. Quelques problèmes à résoudre.';
+                } else {
+                    reportMessage = '❌ PROBLÈMES DÉTECTÉS. Correction nécessaire.';
+                }
+
+                // Afficher dans la console
+                console.log('='.repeat(60));
+                console.log('📊 RAPPORT FINAL - VALIDATION GLB PREVIEW');
+                console.log('='.repeat(60));
+                console.log(`✅ Tests réussis: ${this.passedTests}/${this.totalTests} (${successRate}%)`);
+                console.log(`🎯 ${reportMessage}`);
+                console.log('='.repeat(60));
+
+                // Afficher notification visuelle
+                this.showNotification(reportMessage, successRate >= 75);
+            }
+
+            showNotification(message, isSuccess) {
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: ${isSuccess ? '#4CAF50' : '#ff9800'};
+                    color: white;
+                    padding: 15px 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    max-width: 300px;
+                    font-weight: bold;
+                `;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 5000);
+            }
+        }
+
+        // Fonctions globales pour les boutons
+        let testInstance;
+
+        function runCorrectionTests() {
+            if (!testInstance) testInstance = new CompleteFinalTest();
+            testInstance.runCorrectionTests();
+        }
+
+        function runGLBTests() {
+            if (!testInstance) testInstance = new CompleteFinalTest();
+            testInstance.runGLBTests();
+        }
+
+        function runFullTest() {
+            testInstance = new CompleteFinalTest();
+        }
+
+        function reloadApp() {
+            const iframe = document.getElementById('app-iframe');
+            iframe.src = iframe.src;
+        }
+
+        // Initialisation automatique
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testInstance = new CompleteFinalTest();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

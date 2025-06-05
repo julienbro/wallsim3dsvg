@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Application Principale - GLB Preview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .test-info {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .app-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            background: white;
+        }
+        iframe {
+            width: 100%;
+            height: 800px;
+            border: none;
+        }
+        .instructions {
+            background: #e8f4fd;
+            padding: 15px;
+            border-left: 4px solid #007acc;
+            margin: 15px 0;
+        }
+        .test-button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .test-button:hover {
+            background: #005a9e;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Application Principale - GLB Preview</h1>
+    
+    <div class="test-info">
+        <h2>📋 Instructions de Test</h2>
+        <div class="instructions">
+            <p><strong>Étapes pour tester la preview GLB :</strong></p>
+            <ol>
+                <li>L'application se charge dans l'iframe ci-dessous</li>
+                <li>Cherchez le panneau de droite et cliquez sur "Bibliothèque d'éléments"</li>
+                <li>Cliquez sur l'onglet "Planchers"</li>
+                <li>Regardez l'élément "Hourdis 60+13" - il devrait avoir une preview 3D WebGL qui tourne</li>
+                <li>Comparez avec les autres éléments qui ont des cubes CSS colorés</li>
+            </ol>
+        </div>
+        
+        <button class="test-button" onclick="runAutomaticTest()">
+            🔄 Lancer Test Automatique
+        </button>
+        
+        <div id="test-results" style="margin-top: 15px;"></div>
+    </div>
+
+    <div class="app-container">
+        <iframe id="app-iframe" src="index.html"></iframe>
+    </div>
+
+    <script>
+        let testInProgress = false;
+
+        function runAutomaticTest() {
+            if (testInProgress) return;
+            testInProgress = true;
+            
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = '<div style="color: #007acc;">🔄 Test en cours...</div>';
+            
+            const iframe = document.getElementById('app-iframe');
+            
+            // Attendre que l'iframe soit chargée
+            iframe.onload = function() {
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iframeWindow = iframe.contentWindow;
+                    
+                    // Injecter le script de test dans l'iframe
+                    const script = iframeDoc.createElement('script');
+                    script.textContent = `
+                        console.log('🧪 Test automatique lancé...');
+                        
+                        function waitForUIManager() {
+                            return new Promise((resolve) => {
+                                let attempts = 0;
+                                const checkUI = () => {
+                                    if (window.app && window.app.uiManager) {
+                                        resolve(window.app.uiManager);
+                                    } else if (attempts < 30) {
+                                        attempts++;
+                                        setTimeout(checkUI, 500);
+                                    } else {
+                                        resolve(null);
+                                    }
+                                };
+                                checkUI();
+                            });
+                        }
+                        
+                        async function performGLBTest() {
+                            console.log('⏳ Attente de l\\'initialisation de l\\'UI...');
+                            const uiManager = await waitForUIManager();
+                            
+                            if (!uiManager) {
+                                return { success: false, error: 'UIManager non trouvé' };
+                            }
+                            
+                            console.log('✅ UIManager trouvé:', uiManager);
+                            
+                            // Vérifier ElementsLibrary
+                            if (!uiManager.elementsLibrary) {
+                                return { success: false, error: 'ElementsLibrary non initialisé' };
+                            }
+                            
+                            console.log('✅ ElementsLibrary trouvé:', uiManager.elementsLibrary);
+                            
+                            // Vérifier la configuration hourdis
+                            const planchersElements = uiManager.elementsLibrary.getElementsByCategory('planchers');
+                            const hourdisElement = planchersElements?.find(el => el.name === 'Hourdis 60+13');
+                            
+                            if (!hourdisElement) {
+                                return { success: false, error: 'Élément Hourdis non trouvé' };
+                            }
+                            
+                            console.log('✅ Élément Hourdis trouvé:', hourdisElement);
+                            
+                            // Vérifier le type GLB
+                            if (hourdisElement.type !== 'glb') {
+                                return { success: false, error: 'Type GLB non configuré pour Hourdis' };
+                            }
+                            
+                            console.log('✅ Type GLB configuré pour Hourdis');
+                            
+                            // Vérifier les systèmes de preview GLB
+                            if (!uiManager.glbPreviews || !uiManager.previewCanvas) {
+                                return { success: false, error: 'Systèmes de preview GLB non initialisés' };
+                            }
+                            
+                            console.log('✅ Systèmes de preview GLB initialisés');
+                            
+                            // Vérifier la méthode createGLBPreview
+                            if (typeof uiManager.createGLBPreview !== 'function') {
+                                return { success: false, error: 'Méthode createGLBPreview non trouvée' };
+                            }
+                            
+                            console.log('✅ Méthode createGLBPreview trouvée');
+                            
+                            return { 
+                                success: true, 
+                                message: 'Tous les composants GLB sont correctement configurés',
+                                details: {
+                                    elementsLibrary: !!uiManager.elementsLibrary,
+                                    hourdisElement: !!hourdisElement,
+                                    glbType: hourdisElement.type === 'glb',
+                                    glbPath: hourdisElement.path,
+                                    previewSystems: !!(uiManager.glbPreviews && uiManager.previewCanvas),
+                                    createGLBPreview: typeof uiManager.createGLBPreview === 'function'
+                                }
+                            };
+                        }
+                        
+                        // Lancer le test
+                        performGLBTest().then(result => {
+                            console.log('📊 Résultat du test GLB:', result);
+                            window.parent.postMessage({ type: 'test-result', result }, '*');
+                        }).catch(error => {
+                            console.error('❌ Erreur test GLB:', error);
+                            window.parent.postMessage({ 
+                                type: 'test-result', 
+                                result: { success: false, error: error.message } 
+                            }, '*');
+                        });
+                    `;
+                    
+                    iframeDoc.head.appendChild(script);
+                    
+                } catch (error) {
+                    resultsDiv.innerHTML = `<div style="color: red;">❌ Erreur accès iframe: ${error.message}</div>`;
+                    testInProgress = false;
+                }
+            };
+            
+            // Recharger l'iframe pour déclencher le test
+            iframe.src = iframe.src;
+        }
+
+        // Écouter les messages de l'iframe
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'test-result') {
+                const result = event.data.result;
+                const resultsDiv = document.getElementById('test-results');
+                
+                if (result.success) {
+                    resultsDiv.innerHTML = `
+                        <div style="color: green; background: #d4edda; padding: 10px; border-radius: 4px;">
+                            ✅ <strong>TEST RÉUSSI!</strong><br>
+                            ${result.message}<br>
+                            <small>Détails: ${JSON.stringify(result.details, null, 2)}</small>
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div style="color: red; background: #f8d7da; padding: 10px; border-radius: 4px;">
+                            ❌ <strong>TEST ÉCHOUÉ:</strong> ${result.error}
+                        </div>
+                    `;
+                }
+                
+                testInProgress = false;
+            }
+        });
+
+        // Lancer le test automatiquement après un délai
+        setTimeout(() => {
+            console.log('🚀 Lancement automatique du test dans 3 secondes...');
+            setTimeout(runAutomaticTest, 3000);
+        }, 1000);
+    </script>
+</body>
+</html>
